@@ -26,7 +26,7 @@ jobs:
             target
           key: k4refresh-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
-      - name: Download ARM glibc cross toolchain (.so 动态链接需要)
+      - name: Download ARM glibc cross toolchain (.so ??????????
         run: |
           curl -fsSLo /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--glibc--stable-2024.05-1.tar.xz
           mkdir -p /opt/tc && tar xJf /tmp/tc.tar.xz -C /opt/tc --strip-components=1
@@ -34,15 +34,14 @@ jobs:
       - name: Run unit tests (host)
         run: cargo test
 
-      - name: Build ARM dynamic artifacts (.so + cli, 适配 K4 armhf 用户态)
+      - name: Build ARM dynamic artifacts (.so + cli, ??? K4 armhf ?????
         run: cargo build --release --target armv7-unknown-linux-gnueabihf
         env:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: /opt/tc/bin/arm-buildroot-linux-gnueabihf-gcc
 
-      - name: Build ARM static CLI (musl 静态备选)
+      - name: Build ARM static CLI (musl ???????
         run: cargo build --release --target armv7-unknown-linux-musleabihf
-        # .cargo/config.toml 已配 rust-lld 自包含链接，无需外部工具链
-
+        # .cargo/config.toml ??? rust-lld ????????????????????
       - name: Verify artifact architecture
         run: |
           file target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so
@@ -55,7 +54,7 @@ jobs:
           cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so stage/
           cp target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli stage/k4refresh-cli-dynamic
           cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli stage/k4refresh-cli-static
-          cp lua/K4Refresh.lua stage/
+          cp lua/k4refresh.lua stage/
           tar czf k4refresh-arm.tar.gz -C stage .
 
       - name: Upload artifacts
