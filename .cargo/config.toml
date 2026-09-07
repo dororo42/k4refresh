@@ -1,12 +1,12 @@
-# ARMv7 musl 静态交叉编译配置。
-# Rust 自带 rust-lld 与 musl self-contained CRT/libc，无需外部交叉工具链。
-# 若你的 rustc 版本较老导致此配置报错，见方案文档 §5.3 的两个回退方案。
+# ARMv7 musl 静态交叉编译配置（仅 CLI 静态备选用）。
+# 注意：
+# - libk4refresh.so 走 armv7-unknown-linux-gnueabihf 动态 target，
+#   其 linker 由环境变量 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER
+#   指定（CI 见 .github/workflows/build.yml；本地见 README §5.1）。
+#   此处故意不放 gnueabihf 段——早期的 +crt-static 会导致 glibc cdylib 被丢弃。
+# - musl target 默认 dynamic_linking=false：静态 CLI 可构建，cdylib 会被
+#   rustc 提示 dropping（无害，CI 只取其中的 CLI 产物）。
+# 若你的 rustc 版本较老导致此配置报错，见方案文档 §5.1 的回退方案。
 [target.armv7-unknown-linux-musleabihf]
 linker = "rust-lld"
 rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]
-
-[target.armv7-unknown-linux-gnueabihf]
-# 回退 target：需要外部 arm-linux-gnueabihf-gcc，且注意静态 glibc 对内核
-# 版本下限的要求更高（glibc 2.3x 要求 >= 3.2），仅作为备选。
-linker = "arm-linux-gnueabihf-gcc"
-rustflags = ["-C", "target-feature=+crt-static"]
