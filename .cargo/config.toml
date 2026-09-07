@@ -1,0 +1,12 @@
+# ARMv7 musl 静态交叉编译配置。
+# Rust 自带 rust-lld 与 musl self-contained CRT/libc，无需外部交叉工具链。
+# 若你的 rustc 版本较老导致此配置报错，见方案文档 §5.3 的两个回退方案。
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]
+
+[target.armv7-unknown-linux-gnueabihf]
+# 回退 target：需要外部 arm-linux-gnueabihf-gcc，且注意静态 glibc 对内核
+# 版本下限的要求更高（glibc 2.3x 要求 >= 3.2），仅作为备选。
+linker = "arm-linux-gnueabihf-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- KUAL 扩展注册（Kindle 4 / KUAL 2.x 兼容的最小写法）。
+     安装到 /mnt/us/extensions/k4refresh/config.xml -->
+<extension>
+    <information>
+        <name>K4Refresh</name>
+        <version>0.1.0</version>
+        <author>k4refresh project</author>
+        <summary>E-Ink refresh policy controller (legacy einkfb fx types)</summary>
+    </information>
+    <menu>
+        <item name="flash" priority="1">
+            <text>Full Refresh (slow)</text>
+            <action>
+                <script>bin/k4r.sh</script>
+                <arg>flash</arg>
+            </action>
+        </item>
+        <item name="info" priority="2">
+            <text>Screen Info</text>
+            <action>
+                <script>bin/k4r.sh</script>
+                <arg>info</arg>
+            </action>
+        </item>
+        <item name="bench" priority="3">
+            <text>Benchmark (CSV)</text>
+            <action>
+                <script>bin/k4r.sh</script>
+                <arg>bench</arg>
+            </action>
+        </item>
+    </menu>
+</extension>

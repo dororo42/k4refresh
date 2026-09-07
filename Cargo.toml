@@ -1,0 +1,29 @@
+[package]
+name = "k4refresh"
+version = "0.1.0"
+edition = "2021"
+description = "Kindle 4 legacy einkfb 刷新策略控制器（CLI + LuaJIT FFI 共享库）"
+license = "MIT"
+
+# 依赖最小化：仅 libc（FFI 类型与系统调用封装），无任何其他 crate。
+[dependencies]
+libc = { version = "0.2", default-features = false }
+
+[lib]
+name = "k4refresh"
+path = "src/lib.rs"
+# cdylib  → libk4refresh.so（KOReader LuaJIT FFI 加载）
+# rlib    → 本 crate 的 CLI 与测试复用同一套模块
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "k4refresh-cli"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"        # 体积优先（设备端 512MB RAM 世代，二进制越小越好分发）
+lto = true
+codegen-units = 1
+strip = true
+# 注意：不设 panic="abort"。cdylib 会在 FFI 边界用 catch_unwind 兜底，
+# 保证库内部异常时返回 -99 错误码而不是把宿主（KOReader）进程拖死。
