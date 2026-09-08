@@ -75,9 +75,12 @@ KUAL → K4Refresh：
 /mnt/us/k4refresh/k4refresh-cli bench --fx partial,fast,slow --n 20 --label T --out /mnt/us/bench.csv
 /mnt/us/k4refresh/k4refresh-cli bench --seq fast,fast,fast,slow --n 20 --label C --out /mnt/us/bench_seq.csv
 #                                                          ↑ 组合序列计时：模拟"3 快 1 收尾"真实翻页周期
+/mnt/us/k4refresh/k4refresh-cli bench --fx slow --n 3 --label A --delay-ms 3000 --out /dev/null
+#                                                       ↑ 组内每次刷新间隔 3 秒，肉眼逐次辨认标记
 #
 # bench 说明（v0.1.2+）：
 #   - 每次刷新的图案左上角带白底计数标记（A1/A2/A3…），方便真机肉眼计数
+#   - --delay-ms N（v0.1.3+）：相邻刷新间暂停 N 毫秒；不加则连发，人眼跟不上
 #   - 结束时自动恢复进入前的画面（不留棋盘格）
 #   - 完成消息为「N 行写入 xxx（M 次 ioctl 失败）」，M>0 才需要关注 CSV error 列
 ```
