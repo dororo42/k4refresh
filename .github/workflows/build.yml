@@ -68,7 +68,7 @@ jobs:
           cp kual/config.xml stage/kual/
           cp kual/k4r.sh stage/kual/bin/
           cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli stage/kual/bin/k4refresh-cli
-          cp README.md stage/
+          cp readme.md stage/
           cd stage
           find . -type f ! -name SHA256SUMS.txt -exec sha256sum {} + | sort > SHA256SUMS.txt
           cd ..
