@@ -1,4 +1,4 @@
--- K4Refresh.lua — KOReader 端最小桥接（方案文档 §6 步骤 3 的载体）
+-- k4refresh.lua — KOReader 端最小桥接（方案文档 §6 步骤 3 的载体）
 --
 -- 作用：把 libk4refresh.so 暴露成 KOReader 内可调用的刷新接口。
 -- 这是最小可用版本：手动模式（KK code 触发全刷 / 菜单脚本设模式），
@@ -10,14 +10,22 @@
 --   B. koreader/frontend/（需随 KOReader 升级重放，不推荐）
 --
 -- 用法（KOReader 内置 Lua 控制台或挂在菜单/手势上）：
---   local K4R = require("K4Refresh")   -- 路径需在 package.path 中
---   K4R.init()                         -- 幂等
+--   local K4R = require("k4refresh")   -- 文件名小写，路径需在 package.path 中
+--   K4R.init()                         -- 幂等；init 时自动读取 KUAL 模式文件
 --   K4R.flash()                        -- 立即 fx_update_slow 整屏
 --   K4R.set_mode(0, 6)                 -- fast 模式，每 6 页 slow 收尾
 --   K4R.set_mode(1)                    -- 回 conservative（等价原生行为）
 --   K4R.close()
+--
+-- 模式文件（KUAL 菜单 Set Fast (6)/Set Conservative 写入，跨进程生效通道）：
+--   /mnt/us/k4refresh/mode.conf        内容: "fast N" 或 "conservative"
 
 local logger = require("logger")
+
+local MODE_CONF_CANDIDATES = {
+    "/mnt/us/k4refresh/mode.conf",
+    "k4refresh/mode.conf",
+}
 
 local K4R = {
     loaded = false,
@@ -69,8 +77,34 @@ function K4R.init()
     end
     K4R.fd = fd
     K4R.ok = true
+    K4R.load_mode_from_file()   -- 应用 KUAL「Set Fast/Conservative」写入的模式
     logger.info("K4Refresh: 已加载，fd =", fd)
     return true
+end
+
+-- 读取 KUAL 写入的模式文件并应用。返回 true 表示已应用，否则 nil。
+-- 文件格式: "fast N"（每 N 页 slow 收尾）或 "conservative"；内容非法则静默忽略。
+function K4R.load_mode_from_file()
+    if not K4R.ok then return nil end
+    for _, path in ipairs(MODE_CONF_CANDIDATES) do
+        local f = io.open(path, "r")
+        if f then
+            local line = f:read("*l") or ""
+            f:close()
+            local mode = line:match("^(%S+)")
+            local n = tonumber(line:match("^%S+%s+(%S+)"))
+            if mode == "fast" then
+                K4R.set_mode(0, n or 6)
+                logger.info("K4Refresh: mode.conf -> fast interval =", n or 6)
+                return true
+            elseif mode == "conservative" then
+                K4R.set_mode(1, 6)
+                logger.info("K4Refresh: mode.conf -> conservative")
+                return true
+            end
+        end
+    end
+    return nil
 end
 
 -- kind: 0=翻页/局部 1=UI 2=显式全刷（与 fx.rs KIND_* 一致）

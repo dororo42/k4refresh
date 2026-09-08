@@ -147,7 +147,7 @@ k4refresh-rust/
 │   ├── lib.rs              # C ABI（k4refresh_* 7 个导出）+ 原子策略状态 + panic 兜底
 │   ├── main.rs             # CLI：info / refresh / flash / bench 四个子命令
 │   └── bench.rs            # bench 实现：mmap 帧缓冲 + 棋盘图案 + ioctl 计时 CSV
-├── lua/K4Refresh.lua       # KOReader LuaJIT FFI 桥（§6.2）
+├── lua/k4refresh.lua       # KOReader LuaJIT FFI 桥（§6.2，文件名小写）
 ├── kual/                   # KUAL 扩展（config.xml + k4r.sh）
 ├── .github/workflows/      # CI：三平台矩阵构建 + musl 静态 + 产物上传（§5.2）
 └── dist/                   # 本次已验证的 ARM 产物（v0.1.0，见 §5.3 校验值）
@@ -192,7 +192,7 @@ file target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli
 
 ### 5.2 GitHub Actions CI（仓库自带）
 
-`.github/workflows/build.yml`：push/PR 触发，ubuntu runner 上装 gnueabihf target + bootlin 工具链，跑 `cargo test` → 两个 target 构建 → 上传 artifact（`k4refresh-arm-binaries`，含 .so 与 cli）。无需自建编译机。
+`.github/workflows/build.yml`：push/PR 触发，ubuntu runner 上固定 rustc 版本、装 gnueabihf/musl target + bootlin 工具链（带缓存），跑 `cargo test` → 两个 target 构建 → 上传 artifact（`k4refresh-arm-binaries`，含 .so、cli 与 kual/ 文件）。`.github/workflows/release.yml`：打 `v*` tag 触发，自动构建并发布 GitHub Release（zip + sha256）。无需自建编译机。
 
 ### 5.3 本轮已验证产物（v0.1.0，随仓库 dist/ 分发）
 
@@ -216,22 +216,24 @@ file target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli
 ### 6.2 文件部署
 
 ```bash
-# 电脑上（产物来自 dist/ 或 CI artifact）
+# 电脑上（产物来自 dist/、CI artifact 或 Release zip）
+# 注意：KUAL 脚本固定从 /mnt/us/extensions/k4refresh/bin/ 找 CLI，
+#       因此 CLI 要放两份（k4refresh/ 与 extensions/k4refresh/bin/）。
+ssh root@192.168.15.244 "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin"
 scp dist/libk4refresh.so dist/k4refresh-cli root@192.168.15.244:/mnt/us/k4refresh/
-scp lua/K4Refresh.lua root@192.168.15.244:/mnt/us/koreader/   # 位置 A（推荐）
-# KUAL 扩展（手动全刷入口，可选）
-scp -r kual root@192.168.15.244:/mnt/us/extensions/k4refresh_tmp
-ssh root@192.168.15.244 "mkdir -p /mnt/us/extensions/k4refresh /mnt/us/k4refresh \
-  && mv /mnt/us/extensions/k4refresh_tmp/* /mnt/us/extensions/k4refresh/ \
-  && chmod +x /mnt/us/extensions/k4refresh/bin/* /mnt/us/k4refresh/*"
+scp dist/k4refresh-cli   root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
+scp kual/config.xml      root@192.168.15.244:/mnt/us/extensions/k4refresh/
+scp kual/k4r.sh          root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
+scp lua/k4refresh.lua    root@192.168.15.244:/mnt/us/koreader/   # 位置 A（推荐，文件名小写）
+ssh root@192.168.15.244 "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4refresh/bin/* && sync"
 ```
 
 部署后目录：
 
 ```text
 /mnt/us/k4refresh/libk4refresh.so      ← 共享库
-/mnt/us/k4refresh/k4refresh-cli        ← CLI（可独立用）
-/mnt/us/koreader/K4Refresh.lua         ← Lua 桥
+/mnt/us/k4refresh/k4refresh-cli        ← CLI（可独立用；模式文件 mode.conf 也落此目录）
+/mnt/us/koreader/k4refresh.lua         ← Lua 桥
 /mnt/us/extensions/k4refresh/          ← KUAL 菜单（config.xml + bin/k4r.sh + bin/k4refresh-cli）
 ```
 
@@ -306,7 +308,7 @@ mkdir -p /mnt/us/k4refresh-backup
 # 本方案不改任何系统文件；备份的只是"可能被 KUAL 菜单触碰的"KOReader 配置与目录清单
 cp -a /mnt/us/koreader/settings  /mnt/us/k4refresh-backup/koreader_settings 2>/dev/null
 cp -a /mnt/us/extensions         /mnt/us/k4refresh-backup/extensions_readme 2>/dev/null || true
-ls -laR /mnt/us/k4refresh /mnt/us/koreader/K4Refresh.lua > /mnt/us/k4refresh-backup/manifest_before.txt 2>/dev/null
+ls -laR /mnt/us/k4refresh /mnt/us/koreader/k4refresh.lua > /mnt/us/k4refresh-backup/manifest_before.txt 2>/dev/null
 sync
 ```
 
@@ -317,7 +319,7 @@ sync
 ```bash
 ssh root@192.168.15.244
 rm -rf /mnt/us/extensions/k4refresh      # 移除 KUAL 菜单入口
-rm -f  /mnt/us/koreader/K4Refresh.lua    # 移除 Lua 桥（KOReader 自动接管立即失效）
+rm -f  /mnt/us/koreader/k4refresh.lua    # 移除 Lua 桥
 rm -rf /mnt/us/k4refresh                 # 移除库与 CLI
 cp -a /mnt/us/k4refresh-backup/koreader_settings /mnt/us/koreader/ 2>/dev/null  # 还原配置（可选）
 sync
@@ -343,7 +345,7 @@ sync
 | R1 | 老 2.6.x 内核对动态库/新编译器的兼容边角 | 中 | 产物按 K4 用户态（armhf/glibc 2.11 世代符号集）构建并用 §6.3 冒烟验证；CI 固定 rustc 版本 | 冒烟第 1 条 `info` 失败即停，卸载（§8.2），把 `/proc/version` 发 issue |
 | R2 | fx 语义与枚举注释不符（full 实测不闪已是先例） | 中 | 本方案只用实测过行为的 fast/slow/partial；策略参数以 §7 实测为准，不信注释 | 阅读异常 → 切 conservative 模式（等价原生） |
 | R3 | fast 档残影超预期（图片页尤其） | 低-中 | interval 调大或图片页用 conservative；CLI `--kind ui` 恒 partial | §7.2 残影评分 ≥3 → 降级路径 |
-| R4 | 深度接管 KOReader 刷新入口的接口变动风险 | 中（第二阶段） | 第一阶段只做手动桥（§6.4），不 patch KOReader 本体；第二阶段对齐 nightly 的 einkfb 后端后再做 | 深度接管异常 → 删 K4Refresh.lua 即回到原生 |
+| R4 | 深度接管 KOReader 刷新入口的接口变动风险 | 中（第二阶段） | 第一阶段只做手动桥（§6.4），不 patch KOReader 本体；第二阶段对齐 nightly 的 einkfb 后端后再做 | 深度接管异常 → 删 k4refresh.lua 即回到原生 |
 | R5 | KOReader 2026.07.1 缺 #2481 修复导致"全刷偶尔无效" | 低 | 本方案全刷走 slow（豁免 no-op），天然规避；建议升级 KOReader nightly 对齐 | 无需处理 |
 | R6 | 固件变体差异（同代 K4 不同地区固件） | 低 | ioctl 号与结构体为 einkfb 家族稳定 ABI（K2↔K4 通吃）；部署前跑 `info` 冒烟 | `info` 分辨率异常 → 停用并反馈 |
 | R7 | 误写系统文件 | 低 | 全部产物仅落 /mnt/us；脚本无任何系统分区写操作（k4r.sh 只调 CLI + eips） | §8.1 备份还原 |
@@ -366,7 +368,7 @@ sync
 | armhf / hardfp | ARM 硬件浮点 ABI；K4 FW 4.x 用户态即此 ABI（`/lib/ld-linux-armhf.so.3`） |
 | musl / glibc | 两种 C 库；musl 利于静态链接，glibc 分发动态库。本方案 .so 走 glibc、CLI 可选 musl 静态 |
 | Ghost Budget | 残影预算策略：翻页累计 N 次后触发一次清残影全刷 |
-| LuaJIT FFI | KOReader 的 C 接口调用机制，`lua/K4Refresh.lua` 即基于此 |
+| LuaJIT FFI | KOReader 的 C 接口调用机制，`lua/k4refresh.lua` 即基于此 |
 
 ---
 

@@ -1,0 +1,121 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (pinned for reproducibility)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+          targets: armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: k4refresh-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Cache ARM cross toolchain
+        id: tc-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/tc
+          key: bootlin-armv7-eabihf-glibc-2024.05-1
+
+      - name: Download ARM glibc cross toolchain (for .so dynamic linking)
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSLo /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--glibc--stable-2024.05-1.tar.xz
+          mkdir -p /opt/tc && tar xJf /tmp/tc.tar.xz -C /opt/tc --strip-components=1
+
+      - name: Run unit tests (host)
+        run: cargo test
+
+      - name: Build ARM artifacts
+        run: |
+          cargo build --release --target armv7-unknown-linux-gnueabihf
+          cargo build --release --target armv7-unknown-linux-musleabihf
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: /opt/tc/bin/arm-buildroot-linux-gnueabihf-gcc
+
+      - name: Package release zip
+        run: |
+          ST="k4refresh-${GITHUB_REF_NAME}-arm"
+          mkdir -p "$ST/lua" "$ST/kual/bin"
+          cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli "$ST/k4refresh-cli"
+          cp target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli "$ST/k4refresh-cli-dynamic"
+          cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so "$ST/"
+          cp lua/k4refresh.lua "$ST/lua/"
+          cp kual/config.xml "$ST/kual/"
+          cp kual/k4r.sh "$ST/kual/bin/"
+          cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli "$ST/kual/bin/k4refresh-cli"
+          cat > "$ST/INSTALL.txt" <<'EOF'
+          k4refresh 安装速查（前置：越狱 + KUAL + USBNetwork；IP 按实际调整）
+          在解压目录内执行：
+
+            ssh root@192.168.15.244 "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin"
+            scp k4refresh-cli libk4refresh.so root@192.168.15.244:/mnt/us/k4refresh/
+            scp k4refresh-cli                 root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
+            scp kual/config.xml               root@192.168.15.244:/mnt/us/extensions/k4refresh/
+            scp kual/bin/k4r.sh               root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
+            scp lua/k4refresh.lua             root@192.168.15.244:/mnt/us/koreader/
+            ssh root@192.168.15.244 "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4refresh/bin/* && sync"
+
+          部署后冒烟（任一失败立即停用并卸载）：
+            ssh root@192.168.15.244
+            /mnt/us/k4refresh/k4refresh-cli --version
+            /mnt/us/k4refresh/k4refresh-cli info     # 预期 600x800, bpp=8
+            /mnt/us/k4refresh/k4refresh-cli flash    # 预期屏幕闪烁一次
+
+          使用：KUAL → K4Refresh 菜单；KOReader Lua 台 require("k4refresh")（文件名小写）。
+          卸载：rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh && rm -f /mnt/us/koreader/k4refresh.lua
+          完整文档：https://github.com/dororo42/k4refresh#readme
+          EOF
+          cd "$ST"
+          find . -type f ! -name SHA256SUMS.txt -exec sha256sum {} + | sort > SHA256SUMS.txt
+          cd ..
+          zip -r "${ST}.zip" "$ST"
+          sha256sum "${ST}.zip" > "${ST}.zip.sha256"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ST="k4refresh-${GITHUB_REF_NAME}-arm"
+          cat > release_notes.md <<EOF
+          ## k4refresh ${GITHUB_REF_NAME}
+
+          Kindle 4（legacy einkfb）刷新策略控制器。zip 内容：静态 CLI、动态 CLI、
+          libk4refresh.so、KOReader Lua 桥、KUAL 扩展、INSTALL.txt、SHA256SUMS.txt。
+
+          ### 安装
+          解压后按包内 \`INSTALL.txt\` 逐条执行（前置：越狱 + KUAL + USBNetwork）。
+
+          ### 冒烟（任一失败立即停用）
+          \`\`\`
+          /mnt/us/k4refresh/k4refresh-cli info    # 预期 600x800, bpp=8
+          /mnt/us/k4refresh/k4refresh-cli flash   # 预期屏幕闪烁一次
+          \`\`\`
+
+          ### 回滚
+          \`\`\`
+          rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh && rm -f /mnt/us/koreader/k4refresh.lua
+          \`\`\`
+
+          ⚠️ 设备端真机实测仍在进行中，属实验性版本；详见 README 已知边界与风险清单。
+          EOF
+          gh release create "$GITHUB_REF_NAME" "${ST}.zip" "${ST}.zip.sha256" \
+            --title "k4refresh ${GITHUB_REF_NAME}" --notes-file release_notes.md

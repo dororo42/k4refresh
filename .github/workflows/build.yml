@@ -12,9 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (pinned for reproducibility)
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.98.1
           targets: armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf
 
       - name: Cache cargo
@@ -26,7 +27,15 @@ jobs:
             target
           key: k4refresh-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
-      - name: Download ARM glibc cross toolchain (.so ??????????
+      - name: Cache ARM cross toolchain
+        id: tc-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/tc
+          key: bootlin-armv7-eabihf-glibc-2024.05-1
+
+      - name: Download ARM glibc cross toolchain (for .so dynamic linking)
+        if: steps.tc-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSLo /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--glibc--stable-2024.05-1.tar.xz
           mkdir -p /opt/tc && tar xJf /tmp/tc.tar.xz -C /opt/tc --strip-components=1
@@ -34,14 +43,15 @@ jobs:
       - name: Run unit tests (host)
         run: cargo test
 
-      - name: Build ARM dynamic artifacts (.so + cli, ??? K4 armhf ?????
+      - name: Build ARM dynamic artifacts (.so + cli, K4 armhf)
         run: cargo build --release --target armv7-unknown-linux-gnueabihf
         env:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: /opt/tc/bin/arm-buildroot-linux-gnueabihf-gcc
 
-      - name: Build ARM static CLI (musl ???????
+      - name: Build ARM static CLI (musl, zero-dependency)
         run: cargo build --release --target armv7-unknown-linux-musleabihf
-        # .cargo/config.toml ??? rust-lld ????????????????????
+        # .cargo/config.toml 已配置 rust-lld 自包含链接
+
       - name: Verify artifact architecture
         run: |
           file target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so
@@ -50,11 +60,18 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p stage
-          cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so stage/
+          mkdir -p stage/lua stage/kual/bin
+          cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli stage/k4refresh-cli
           cp target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli stage/k4refresh-cli-dynamic
-          cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli stage/k4refresh-cli-static
-          cp lua/k4refresh.lua stage/
+          cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so stage/
+          cp lua/k4refresh.lua stage/lua/
+          cp kual/config.xml stage/kual/
+          cp kual/k4r.sh stage/kual/bin/
+          cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli stage/kual/bin/k4refresh-cli
+          cp readme.md stage/
+          cd stage
+          find . -type f ! -name SHA256SUMS.txt -exec sha256sum {} + | sort > SHA256SUMS.txt
+          cd ..
           tar czf k4refresh-arm.tar.gz -C stage .
 
       - name: Upload artifacts

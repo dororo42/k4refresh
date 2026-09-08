@@ -12,16 +12,19 @@ const FB_PATH: &str = "/dev/fb0";
 
 fn usage() -> ! {
     eprintln!(
-        "k4refresh-cli — Kindle 4 einkfb 刷新控制器\n\
+        "k4refresh-cli v{} — Kindle 4 einkfb 刷新控制器\n\
          \n\
          用法:\n\
+         \x20 k4refresh-cli --version                    打印版本\n\
          \x20 k4refresh-cli info                          查询屏幕信息\n\
          \x20 k4refresh-cli refresh [--kind page|ui|full] [--mode fast|conservative]\n\
          \x20                 [--interval N] [--x1 A --y1 B --x2 C --y2 D]\n\
          \x20 k4refresh-cli flash                         整屏 fx_update_slow 清残影\n\
          \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--out latency.csv]\n\
+         \x20                 [--seq fast,fast,fast,slow]（组合序列计时，模拟真实翻页周期）\n\
          \n\
-         fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）"
+         fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）",
+        env!("CARGO_PKG_VERSION")
     );
     std::process::exit(2);
 }
@@ -60,12 +63,17 @@ fn main() -> ExitCode {
     }
     let a = Args(args);
     match a.0[0].as_str() {
+        "--version" | "version" => {
+            println!("k4refresh-cli {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
         "info" => {
             let (fd, v) = open_fb_or_die();
             let f = k4refresh::eink::fix_info(fd).unwrap_or_else(|e| {
                 eprintln!("错误: 读取 fb 布局失败: {e}");
                 std::process::exit(1);
             });
+            println!("version     : {}", env!("CARGO_PKG_VERSION"));
             println!("device      : {FB_PATH}");
             println!("resolution  : {} x {}", v.xres, v.yres);
             println!("virtual     : {} x {}", v.xres_virtual, v.yres_virtual);
@@ -137,17 +145,7 @@ fn main() -> ExitCode {
             }
         }
         "bench" => {
-            let fx_list: Vec<i32> = a
-                .flag("--fx")
-                .unwrap_or_else(|| "partial,fast,slow".into())
-                .split(',')
-                .filter_map(|s| match s.trim() {
-                    "partial" => Some(k4refresh::fx::FX_PARTIAL),
-                    "fast" => Some(k4refresh::fx::FX_FAST),
-                    "slow" => Some(k4refresh::fx::FX_SLOW),
-                    _ => None,
-                })
-                .collect();
+            let fx_list = bench::parse_fx_list(&a.flag("--fx").unwrap_or_else(|| "partial,fast,slow".into()));
             let n: u32 = a.flag("--n").and_then(|s| s.parse().ok()).unwrap_or(20);
             let out = a.flag("--out").unwrap_or_else(|| "latency.csv".into());
             let (fd, v) = open_fb_or_die();
@@ -155,7 +153,15 @@ fn main() -> ExitCode {
                 eprintln!("错误: {e}");
                 std::process::exit(1);
             });
-            let rc = bench::run(fd, &v, &f, &fx_list, n, &out);
+            let rc = match a.flag("--seq").map(|s| bench::parse_fx_list(&s)) {
+                Some(seq) if seq.is_empty() => {
+                    k4refresh::eink::close_fd(fd);
+                    eprintln!("错误: --seq 未解析出有效 fx（可用: partial,fast,slow）");
+                    return ExitCode::FAILURE;
+                }
+                Some(seq) => bench::run_seq(fd, &v, &f, &seq, n, &out),
+                None => bench::run(fd, &v, &f, &fx_list, n, &out),
+            };
             k4refresh::eink::close_fd(fd);
             match rc {
                 Ok(errors) => {

@@ -1,6 +1,6 @@
 [package]
 name = "k4refresh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Kindle 4 legacy einkfb 刷新策略控制器（CLI + LuaJIT FFI 共享库）"
 license = "MIT"

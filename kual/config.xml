@@ -4,7 +4,7 @@
 <extension>
     <information>
         <name>K4Refresh</name>
-        <version>0.1.0</version>
+        <version>0.1.1</version>
         <author>k4refresh project</author>
         <summary>E-Ink refresh policy controller (legacy einkfb fx types)</summary>
     </information>
@@ -16,14 +16,28 @@
                 <arg>flash</arg>
             </action>
         </item>
-        <item name="info" priority="2">
+        <item name="fast" priority="2">
+            <text>Set Fast (6)</text>
+            <action>
+                <script>bin/k4r.sh</script>
+                <arg>fast</arg>
+            </action>
+        </item>
+        <item name="conservative" priority="3">
+            <text>Set Conservative</text>
+            <action>
+                <script>bin/k4r.sh</script>
+                <arg>conservative</arg>
+            </action>
+        </item>
+        <item name="info" priority="4">
             <text>Screen Info</text>
             <action>
                 <script>bin/k4r.sh</script>
                 <arg>info</arg>
             </action>
         </item>
-        <item name="bench" priority="3">
+        <item name="bench" priority="5">
             <text>Benchmark (CSV)</text>
             <action>
                 <script>bin/k4r.sh</script>

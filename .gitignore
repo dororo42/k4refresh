@@ -1,2 +1,7 @@
 /target
 /dist
+
+# 本地评估/评审/规划文档不入库（按约定不推送）
+k4refresh (rust)项目学习报告与风险评估-*.md
+report-review-*.md
+K4Refresh 技术方案与开发路线.md
