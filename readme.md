@@ -32,18 +32,24 @@ cargo build --release --target armv7-unknown-linux-gnueabihf   # .so 动态库�
 cargo test              # 策略单测（host）
 ```
 
-## 3. 部署（照抄即可；前置：越狱 + KUAL + USBNetwork）
+## 3. 部署（照抄即可；前置：越狱 + KUAL；SSH 通道二选一）
+
+SSH 通道（二选一，推荐 A）：
+- **A. KOReader 自带 SSH 服务器**（免装 usbnet，攻击面最小）：KOReader → 齿轮 → 网络 → 无线 → 开启 SSH 服务器，默认端口 `2222`，用户 `root`，密码在 KOReader 设置里可见/修改
+- B. USBNetwork：usbnet 包安装后 `;debugOn` → `~usbNetwork` → `;debugOff` 启用
 
 ```bash
-# 解压 zip 后，在 zip 目录内执行（IP 按你的 USBNet 地址调整）
-ssh root@192.168.15.244 "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin"
-scp k4refresh-cli libk4refresh.so root@192.168.15.244:/mnt/us/k4refresh/
-scp k4refresh-cli                 root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
-scp kual/config.xml               root@192.168.15.244:/mnt/us/extensions/k4refresh/
-scp kual/bin/k4r.sh               root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
-scp lua/k4refresh.lua             root@192.168.15.244:/mnt/us/koreader/   # 文件名小写
-ssh root@192.168.15.244 "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4refresh/bin/* && sync"
+# 解压 zip 后，在 zip 目录内执行（IP/端口按你的 SSH 通道调整；scp 加 -P 2222）
+ssh -P 2222 root@192.168.2.x "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin"
+scp -P 2222 k4refresh-cli libk4refresh.so root@192.168.2.x:/mnt/us/k4refresh/
+scp -P 2222 k4refresh-cli                 root@192.168.2.x:/mnt/us/extensions/k4refresh/bin/
+scp -P 2222 kual/config.xml               root@192.168.2.x:/mnt/us/extensions/k4refresh/
+scp -P 2222 kual/bin/k4r.sh               root@192.168.2.x:/mnt/us/extensions/k4refresh/bin/
+scp -P 2222 lua/k4refresh.lua             root@192.168.2.x:/mnt/us/koreader/   # 文件名小写
+ssh -P 2222 root@192.168.2.x "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4refresh/bin/* && sync"
 ```
+
+> 部署/更新 KUAL 扩展后需**重启 Kindle**（KUAL 只在启动时扫描 extensions/）。
 
 ## 4. 使用
 
@@ -66,9 +72,14 @@ KUAL → K4Refresh：
 /mnt/us/k4refresh/k4refresh-cli info                       # 冒烟第 1 条：600x800, bpp=8
 /mnt/us/k4refresh/k4refresh-cli flash                      # 强制 slow 全刷
 /mnt/us/k4refresh/k4refresh-cli refresh --mode fast --interval 6
-/mnt/us/k4refresh/k4refresh-cli bench --fx partial,fast,slow --n 20 --out /mnt/us/bench.csv
-/mnt/us/k4refresh/k4refresh-cli bench --seq fast,fast,fast,slow --n 20 --out /mnt/us/bench_seq.csv
+/mnt/us/k4refresh/k4refresh-cli bench --fx partial,fast,slow --n 20 --label T --out /mnt/us/bench.csv
+/mnt/us/k4refresh/k4refresh-cli bench --seq fast,fast,fast,slow --n 20 --label C --out /mnt/us/bench_seq.csv
 #                                                          ↑ 组合序列计时：模拟"3 快 1 收尾"真实翻页周期
+#
+# bench 说明（v0.1.2+）：
+#   - 每次刷新的图案左上角带白底计数标记（A1/A2/A3…），方便真机肉眼计数
+#   - 结束时自动恢复进入前的画面（不留棋盘格）
+#   - 完成消息为「N 行写入 xxx（M 次 ioctl 失败）」，M>0 才需要关注 CSV error 列
 ```
 
 ### 4.3 KOReader 内（Lua 桥，手动模式）

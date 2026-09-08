@@ -4,7 +4,7 @@
 <extension>
     <information>
         <name>K4Refresh</name>
-        <version>0.1.1</version>
+        <version>0.1.2</version>
         <author>k4refresh project</author>
         <summary>E-Ink refresh policy controller (legacy einkfb fx types)</summary>
     </information>
