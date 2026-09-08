@@ -20,7 +20,8 @@ fn usage() -> ! {
          \x20 k4refresh-cli refresh [--kind page|ui|full] [--mode fast|conservative]\n\
          \x20                 [--interval N] [--x1 A --y1 B --x2 C --y2 D]\n\
          \x20 k4refresh-cli flash                         整屏 fx_update_slow 清残影\n\
-         \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--label A] [--out latency.csv]\n\
+         \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--label A]\n\
+         \x20                 [--delay-ms 3000] [--out latency.csv]\n\
          \x20                 [--seq fast,fast,fast,slow]（组合序列计时，模拟真实翻页周期）\n\
          \n\
          fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）",
@@ -159,14 +160,18 @@ fn main() -> ExitCode {
                 .trim()
                 .to_uppercase();
             let label = if label.is_empty() { "T".into() } else { label };
+            let delay_ms: u64 = a
+                .flag("--delay-ms")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
             let rc = match a.flag("--seq").map(|s| bench::parse_fx_list(&s)) {
                 Some(seq) if seq.is_empty() => {
                     k4refresh::eink::close_fd(fd);
                     eprintln!("错误: --seq 未解析出有效 fx（可用: partial,fast,slow）");
                     return ExitCode::FAILURE;
                 }
-                Some(seq) => bench::run_seq(fd, &v, &f, &seq, n, &out, &label),
-                None => bench::run(fd, &v, &f, &fx_list, n, &out, &label),
+                Some(seq) => bench::run_seq(fd, &v, &f, &seq, n, &out, &label, delay_ms),
+                None => bench::run(fd, &v, &f, &fx_list, n, &out, &label, delay_ms),
             };
             k4refresh::eink::close_fd(fd);
             match rc {

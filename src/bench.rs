@@ -8,15 +8,18 @@
 //! 结束时把进入前的 framebuffer 原样写回并整屏刷新一次，不留测试图案。
 //!
 //! 两种模式：
-//! - run：单 fx 独立计时（`--fx partial,fast,slow --label A --n 3`）；
+//! - run：单 fx 独立计时（`--fx partial,fast,slow --label A --n 3 --delay-ms 3000`）；
 //! - run_seq：组合序列计时（`--seq fast,fast,fast,slow --label C --n 15`），
 //!   模拟真实翻页周期（fast×N + slow×1 收尾），CSV 增加 round/step 两列。
+//! `--delay-ms N` 在相邻两次刷新之间暂停 N 毫秒，供真机肉眼逐次辨认标记
+//! （人眼跟随连发刷新不可行；最后一组刷新后不延时，立即恢复画面）。
 
 use k4refresh::eink::{update_area, FixScreenInfo, UpdateArea, VarScreenInfo};
 use k4refresh::fx::{FX_FAST, FX_PARTIAL, FX_SLOW};
 use std::io::{self, Write};
 use std::os::raw::c_int;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// 解析 "partial,fast,slow" 形式的 fx 列表；非法 token 忽略。
 pub fn parse_fx_list(s: &str) -> Vec<i32> {
@@ -213,6 +216,7 @@ pub fn run(
     n: u32,
     out_path: &str,
     label: &str,
+    delay_ms: u64,
 ) -> io::Result<(usize, usize)> {
     let (fb, len) = map_fb(fd, f)?;
     let guard = FbGuard::new(fd, fb, v, len);
@@ -235,6 +239,10 @@ pub fn run(
                 }
             }
             rows += 1;
+            // 组内间隔：给真机肉眼观察留时间（最后一次跳过，避免拖慢恢复）
+            if delay_ms > 0 && counter < (fx_list.len() as u32 * n) as usize {
+                thread::sleep(Duration::from_millis(delay_ms));
+            }
         }
     }
     out.flush()?;
@@ -253,6 +261,7 @@ pub fn run_seq(
     rounds: u32,
     out_path: &str,
     label: &str,
+    delay_ms: u64,
 ) -> io::Result<(usize, usize)> {
     if seq.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty seq"));
@@ -283,6 +292,9 @@ pub fn run_seq(
                 }
             }
             rows += 1;
+            if delay_ms > 0 && (rows as usize) < rounds as usize * seq.len() {
+                thread::sleep(Duration::from_millis(delay_ms));
+            }
         }
     }
     out.flush()?;
