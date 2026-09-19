@@ -130,7 +130,8 @@ jobs:
           rm -f /mnt/us/koreader/k4refresh.lua
           \`\`\`
 
-          ⚠️ 插件已在真机完成部署冒烟；残影改善的感知验收仍在进行中。
+          ⚠️ 插件属 v0.1.4 新特性，残影改善的感知验收仍在进行中；部署后先按上方
+          冒烟命令验证基础链路，异常即卸载。详见 README 已知边界。
           EOF
           gh release create "$GITHUB_REF_NAME" "${ST}.zip" "${ST}.zip.sha256" \
             --title "k4refresh ${GITHUB_REF_NAME}" --notes-file release_notes.md
