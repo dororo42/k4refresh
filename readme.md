@@ -2,7 +2,7 @@
 
 Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KOReader 原生 partial，KOReader 插件按 ghost 档位每 N 页自动 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
 
-- ⚠️ **状态：v0.1.4，插件（重影优先模式）已实现，真机感知验收进行中**——部署前请阅读技术方案文档（本地工作文件，不入库）的测试表与风险清单，`info` 冒烟失败立即停用。
+- ⚠️ **状态：v0.1.7，真机在用版本**——残影感知验收结论：ghost 6 下可接受。部署前请阅读技术方案文档（本地工作文件，不入库）的测试表与风险清单，`info` 冒烟失败立即停用。
 - 📦 下载：[Releases](https://github.com/dororo42/k4refresh/releases) 页 zip 包（含 CLI / .so / Lua 桥 / KOReader 插件 / KUAL 扩展 / SHA256SUMS）；或 Actions → build → artifacts。
 - 🤖 CI：push 自动构建 ARM 产物；打 `v*` tag 自动发布 Release。
 
@@ -66,6 +66,8 @@ ssh -P 2222 root@192.168.2.x "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4
 
 行为：翻页保持原生 partial 不变；每 N 次翻页自动触发一次 slow 全刷（闪烁一次、残影清零）；章节/跳页等大步长跳转（|Δ页|>1）立即收尾。FFI/.so 不可用时插件自动回退静态 CLI，收尾动作不中断。
 
+**收尾策略接管（v0.1.7+）**：ghost 模式激活时，插件自动把 KOReader 内置的"每 6 次 partial 升级全刷"（UIManager `full_refresh_count`）设为 0 并持久化，避免与插件收尾叠加成双重黑闪；Ghost: Off 时恢复默认 6。背景：实测连续 partial 全屏反转的残影单调累积（第 1→4 次反转 RMS 约 10%→15%），周期性 slow 收尾是必要设计。
+
 ### 4.2 KUAL 菜单
 
 KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜单则即时生效）：
@@ -84,18 +86,30 @@ KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜
 /mnt/us/k4refresh/k4refresh-cli --version                  # 打印版本
 /mnt/us/k4refresh/k4refresh-cli info                       # 冒烟第 1 条：600x800, bpp=8
 /mnt/us/k4refresh/k4refresh-cli flash                      # 强制 slow 全刷
+/mnt/us/k4refresh/k4refresh-cli restore --mode 1           # v0.1.7+：RESTORE_DISPLAY 整帧重推（花屏修复/确定性清残影）
+/mnt/us/k4refresh/k4refresh-cli fxupdate --mode 1 --which -1            # v0.1.7+：整屏刷新（fx_t 通道）
+/mnt/us/k4refresh/k4refresh-cli fxupdate --mode 0 --which 21 --exclude 0,750,600,800
+#                                                          ↑ partial + 反色变换 + 排除底部 50 行
 /mnt/us/k4refresh/k4refresh-cli refresh --mode fast --interval 6
 /mnt/us/k4refresh/k4refresh-cli bench --fx partial,fast,slow --n 20 --label T --out /mnt/us/bench.csv
 /mnt/us/k4refresh/k4refresh-cli bench --seq fast,fast,fast,slow --n 20 --label C --out /mnt/us/bench_seq.csv
 #                                                          ↑ 组合序列计时：模拟"3 快 1 收尾"真实翻页周期
 /mnt/us/k4refresh/k4refresh-cli bench --fx slow --n 3 --label A --delay-ms 3000 --out /dev/null
 #                                                       ↑ 组内每次刷新间隔 3 秒，肉眼逐次辨认标记
+/mnt/us/k4refresh/k4refresh-cli bench --fx partial --n 3 --delay-ms 7000 --pattern gray --shot-idx 1 --label N
+#                                                       ↑ 灰阶条带残影观察；--quant 附加 16 级量化；--shot-idx 帧显示「标记+请拍摄」横幅
 #
 # bench 说明（v0.1.2+）：
 #   - 每次刷新的图案左上角带白底计数标记（A1/A2/A3…），方便真机肉眼计数
 #   - --delay-ms N（v0.1.3+）：相邻刷新间暂停 N 毫秒；不加则连发，人眼跟不上
-#   - 结束时自动恢复进入前的画面（不留棋盘格）
+#   - --sync（v0.1.5+）：每次刷新后 fsync(fd)（= WAITFORVSYNC）计时；实测 ioctl 本身同步
+#     （~125ms），fsync 仅 0.4-0.5ms，CSV 增列 sync_usec
+#   - --pattern gray / --quant / --shot-idx（v0.1.5/0.1.6+）：残影对比实验工具，见上例
+#   - 结束时自动恢复进入前的画面（不留测试图案）
 #   - 完成消息为「N 行写入 xxx（M 次 ioctl 失败）」，M>0 才需要关注 CSV error 列
+#
+# restore/fxupdate 说明（v0.1.7+）：ioctl 编号自动按 新(0x46ef/0x46e4)→旧(0x4644/0x4642)
+# 探测并在输出中报告生效者；K4 4.1.4 实测新编号直接生效。
 ```
 
 ### 4.4 KOReader 内（Lua 桥，手动模式）
@@ -116,13 +130,14 @@ K4R.set_mode(1)                     -- 回 conservative
 
 ```bash
 ssh root@192.168.15.244
-rm -rf /mnt/us/extensions/k4refresh   # KUAL 菜单
-rm -f  /mnt/us/koreader/k4refresh.lua # Lua 桥
-rm -rf /mnt/us/k4refresh              # 库、CLI、mode.conf、bench.csv
+rm -rf /mnt/us/extensions/k4refresh              # KUAL 菜单
+rm -rf /mnt/us/koreader/plugins/k4refresh.koplugin  # KOReader 插件
+rm -f  /mnt/us/koreader/k4refresh.lua            # Lua 桥
+rm -rf /mnt/us/k4refresh                         # 库、CLI、mode.conf、实验数据
 sync
 ```
 
-无系统分区写入、无驻留组件，删除即净。
+无系统分区写入、无驻留组件，删除即净。卸载后若需恢复 KOReader 内置全刷间隔（插件曾把它设为 0），在 KOReader 屏幕设置里改回，或 Lua 调试台执行 `require("ui/uimanager"):setRefreshRate(6)`。
 
 ## 6. 排障
 
@@ -132,15 +147,15 @@ sync
 | `info` 分辨率非 600x800 | 立即停用并卸载，反馈 `/proc/version` |
 | KOReader 内 `require("k4refresh")` 报错 | 确认文件已拷到 `/mnt/us/koreader/` 且大小写为小写 |
 | KUAL 菜单点了没反应 | 确认 `extensions/k4refresh/bin/` 下有 `k4r.sh` 和 `k4refresh-cli` 且有执行权限 |
-| 残影明显 | interval 调大（如 8）或切 conservative |
+| 残影明显 | ghost 间隔调小（Every 4）或菜单 Full Refresh 手动收尾；图片多的书可加大间隔 |
 
 更多：技术方案 §7 完整测试表、§8 备份与回滚、§9 风险清单。
 
 ## 7. 已知边界
 
 - 仅适用 Kindle 4（Non-Touch，FW 4.1.4，legacy einkfb）；mxcfb 机型不适用。
-- v0.1.4 插件接管的是"收尾调度"：翻页本身仍是 KOReader 原生 partial；插件每 N 页触发一次 slow 收尾。直接改写 KOReader 刷新后端（让翻页走 fast 档）未实现——真机实测三种 fx 在真实翻页下视觉不可分辨，该路径的收益存疑，暂缓。
-- **KOReader 内 FFI 当前不可用（已知，2026-09-19 实机定性）**：K4 用户态为 armel/softfp + glibc 2.12.1，gnueabihf 产物（armhf + GLIBC_2.18~2.34 标签）无法 dlopen。插件与 Lua 桥均自动回退静态 CLI（实测可用）；FFI 路径待 v0.1.5 用 koxtoolchain armel 重建 .so 恢复。
+- v0.1.7 插件接管的是"收尾调度"：翻页本身仍是 KOReader 原生 partial；插件每 N 页触发一次 slow 收尾，并在 ghost 激活时关闭 KOReader 内置的每 6 页 promotion 全刷（防双重黑闪，Off 时恢复）。直接改写 KOReader 刷新后端（让翻页走 fast 档）未实现——真机实测三种 fx 在真实翻页下视觉不可分辨，且 E1 实测各通道 ioctl 同步 ~125ms，该路径无收益，已关闭。
+- **KOReader 内 FFI 当前不可用（已知，2026-09-19 实机定性）**：K4 用户态为 armel/softfp + glibc 2.12.1，gnueabihf 产物（armhf + GLIBC_2.18~2.34 标签）无法 dlopen。插件与 Lua 桥均自动回退静态 CLI（实测可用）；FFI 路径待后续用 koxtoolchain armel 重建 .so 恢复。
 - KUAL 改档在下次开书后生效；KOReader 菜单改档即时生效。
 - fast/conservative 库内模式只影响经本库（CLI refresh / Lua 桥 `K4R.refresh`）发起的刷新；无翻页路径消费者（v0.1.x 历史接口，保留仅为 ABI 兼容）。
 - Windows 主机不可编译本 crate（`libc::ioctl` 仅 POSIX）；测试/构建用 Linux 或 CI。
