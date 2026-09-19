@@ -55,7 +55,9 @@ const FONT5X7: &[(&str, [u8; 5])] = &[
     ("C", [0x3E, 0x41, 0x41, 0x41, 0x22]),
     ("D", [0x7F, 0x41, 0x41, 0x22, 0x1C]),
     ("F", [0x7F, 0x09, 0x09, 0x09, 0x01]),
+    ("N", [0x7F, 0x02, 0x04, 0x08, 0x7F]),
     ("P", [0x7F, 0x09, 0x09, 0x09, 0x06]),
+    ("Q", [0x3E, 0x41, 0x41, 0x51, 0x4E]),
     ("S", [0x46, 0x49, 0x49, 0x49, 0x31]),
     ("T", [0x01, 0x01, 0x7F, 0x01, 0x01]),
     ("0", [0x3E, 0x51, 0x49, 0x45, 0x3E]),
@@ -79,7 +81,76 @@ fn glyph(ch: char) -> &'static [u8; 5] {
         .iter()
         .find(|(name, _)| *name == s)
         .map(|(_, g)| g)
-        .unwrap_or(&FONT5X7[20].1) // 未知字符 → 空格
+        .unwrap_or(&FONT5X7[22].1) // 未知字符 → 空格
+}
+
+/// "请拍摄" 1bpp 位图（SimSun 粗体 24px 渲染后 4x4 降采样，MSB 在前）。
+/// 由 .deploy/gen_glyph.ps1 生成，勿手改。
+pub const SHOOT_W: usize = 72;
+pub const SHOOT_H: usize = 26;
+pub const SHOOT_BPR: usize = 9;
+pub const SHOOT_TEXT: &[u8] = &[ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x0C, 0x00, 0x0C, 0x06, 0x00, 0x1C, 0x00, 0x00, 0x20, 0x0C, 0x00, 0x0C, 0x07, 0x00, 0x19, 0xFF, 0x00, 0x30, 0x0C, 0x30, 0x0C, 0x06, 0x00, 0x18, 0x30, 0x00, 0x3B, 0xFF, 0xF8, 0x0C, 0x04, 0x00, 0x18, 0x30, 0x00, 0x10, 0x0C, 0x40, 0x0C, 0x0C, 0x20, 0x1F, 0x3F, 0x00, 0x00, 0xFF, 0xE0, 0x1F, 0x7F, 0xF0, 0xFF, 0x30, 0x00, 0x00, 0x0C, 0x00, 0xFF, 0xE0, 0x30, 0x18, 0x3F, 0x00, 0x30, 0x0C, 0x10, 0x0C, 0x60, 0x30, 0x18, 0x30, 0x01, 0xFB, 0xFF, 0xF8, 0x0C, 0x60, 0x30, 0x1B, 0x3C, 0x00, 0x32, 0x00, 0x40, 0x0D, 0xE0, 0x30, 0x1D, 0xFF, 0x00, 0x30, 0xC0, 0xC0, 0x0E, 0x60, 0x30, 0x38, 0x00, 0x00, 0x30, 0xFF, 0xE0, 0x1C, 0x60, 0x30, 0xF8, 0x10, 0x00, 0x30, 0xC0, 0x40, 0x7C, 0x7F, 0xF0, 0xDB, 0xFF, 0x00, 0x30, 0xFF, 0xC0, 0xEC, 0x60, 0x30, 0x18, 0x1A, 0x00, 0x33, 0xC0, 0x40, 0x4C, 0x60, 0x30, 0x18, 0xB3, 0x00, 0x36, 0xC0, 0xC0, 0x0C, 0x60, 0x30, 0x18, 0x71, 0x00, 0x3C, 0xFF, 0xC0, 0x0C, 0x60, 0x30, 0x18, 0x71, 0x00, 0x3C, 0xC0, 0x40, 0x0C, 0x60, 0x30, 0x18, 0xF9, 0x00, 0x38, 0xC0, 0x40, 0x0C, 0x7F, 0xF0, 0x19, 0x9B, 0x00, 0x10, 0xC7, 0xC0, 0xFC, 0x60, 0x30, 0xFB, 0x16, 0x00, 0x00, 0xC3, 0xC0, 0x38, 0x60, 0x30, 0x3E, 0x0C, 0x00, 0x00, 0xC0, 0x80, 0x10, 0x40, 0x20, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
+
+/// 拍摄横幅：白底大块 = 当轮标记（5x7 放大）+ "请拍摄" 位图。
+/// 出现在 --shot-idx 指定的那一帧上，供相机记录画面归属。
+fn draw_shot_banner(fb: *mut u8, v: &VarScreenInfo, f: &FixScreenInfo, label: &str) {
+    const SCALE_LABEL: usize = 4;
+    const SCALE_HANZI: usize = 3;
+    let xres = v.xres as usize;
+    let yres = v.yres as usize;
+    let stride = f.line_length as usize;
+    let put = |x: usize, y: usize, val: u8| unsafe {
+        if x < xres && y < yres {
+            *fb.add(y * stride + x) = val;
+        }
+    };
+    let x0 = 16usize;
+    let y0 = 16usize;
+    let label_w = label.chars().count() * (5 * SCALE_LABEL + SCALE_LABEL);
+    let hanzi_w = SHOOT_W * SCALE_HANZI;
+    let box_w = hanzi_w.max(label_w) + 16;
+    let box_h = 8 + 7 * SCALE_LABEL + 6 + SHOOT_H * SCALE_HANZI + 8;
+    for y in y0..(y0 + box_h).min(yres) {
+        for x in x0..(x0 + box_w).min(xres) {
+            put(x, y, 0xFF);
+        }
+    }
+    // 第一行：当轮标记（与 draw_label 同款渲染）
+    let lx = x0 + 8;
+    let ly = y0 + 8;
+    for (ci, ch) in label.chars().enumerate() {
+        let g = glyph(ch);
+        for (col, bits) in g.iter().enumerate() {
+            for row in 0..7u32 {
+                if bits & (1 << row) != 0 {
+                    for dy in 0..SCALE_LABEL {
+                        for dx in 0..SCALE_LABEL {
+                            put(lx + ci * (5 * SCALE_LABEL + SCALE_LABEL) + col * SCALE_LABEL + dx,
+                                ly + row as usize * SCALE_LABEL + dy, 0x00);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 第二行："请拍摄"
+    let hx = x0 + 8;
+    let hy = y0 + 8 + 7 * SCALE_LABEL + 6;
+    for (idx, &b) in SHOOT_TEXT.iter().enumerate() {
+        let row = idx / SHOOT_BPR;
+        let colb = idx % SHOOT_BPR;
+        for bit in 0..8u32 {
+            if b & (0x80u8 >> bit) != 0 {
+                let px = colb * 8 + bit as usize;
+                let py = row;
+                for dy in 0..SCALE_HANZI {
+                    for dx in 0..SCALE_HANZI {
+                        put(hx + px * SCALE_HANZI + dx, hy + py * SCALE_HANZI + dy, 0x00);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// 在棋盘图案左上角渲染标记：白底黑字，4 倍放大，带留白。
@@ -131,6 +202,7 @@ fn draw_pattern(
     label: &str,
     pattern: Pattern,
     quant: bool,
+    shot: bool,
 ) {
     unsafe {
         match pattern {
@@ -168,7 +240,11 @@ fn draw_pattern(
             }
         }
     }
-    draw_label(fb, v, f, label);
+    if shot {
+        draw_shot_banner(fb, v, f, label);
+    } else {
+        draw_label(fb, v, f, label);
+    }
 }
 
 /// mmap framebuffer（长度取驱动报告的 smem_len，越界写不可能超出该长度）。
@@ -216,8 +292,9 @@ fn time_update(
     pattern: Pattern,
     quant: bool,
     sync: bool,
+    shot: bool,
 ) -> (u128, u128, Option<i32>) {
-    draw_pattern(fb, v, f, frame, label, pattern, quant);
+    draw_pattern(fb, v, f, frame, label, pattern, quant, shot);
     let area = UpdateArea::new(0, 0, v.xres as i32, v.yres as i32, fxv);
     let t0 = Instant::now();
     let r = update_area(fd, &area);
@@ -286,6 +363,7 @@ pub fn run(
     pattern: Pattern,
     quant: bool,
     sync: bool,
+    shot_idx: usize,
 ) -> io::Result<(usize, usize)> {
     let (fb, len) = map_fb(fd, f)?;
     let guard = FbGuard::new(fd, fb, v, len);
@@ -299,8 +377,9 @@ pub fn run(
         for i in 0..n {
             counter += 1;
             let mark = format!("{}{}", label, counter);
+            let shot = i as usize == shot_idx;
             let (usec, sync_usec, err) =
-                time_update(fd, fb, v, f, fxv, i, &mark, pattern, quant, sync);
+                time_update(fd, fb, v, f, fxv, i, &mark, pattern, quant, sync, shot);
             match err {
                 None => writeln!(out, "{fxv},{i},{mark},{usec},{sync_usec},0")?,
                 Some(errno) => {
@@ -336,6 +415,7 @@ pub fn run_seq(
     pattern: Pattern,
     quant: bool,
     sync: bool,
+    shot_idx: usize,
 ) -> io::Result<(usize, usize)> {
     if seq.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty seq"));
@@ -357,8 +437,9 @@ pub fn run_seq(
             } else {
                 mark
             };
+            let shot = step == shot_idx;
             let (usec, sync_usec, err) =
-                time_update(fd, fb, v, f, fxv, frame, &mark, pattern, quant, sync);
+                time_update(fd, fb, v, f, fxv, frame, &mark, pattern, quant, sync, shot);
             match err {
                 None => writeln!(out, "{fxv},{round},{step},{mark},{usec},{sync_usec},0")?,
                 Some(errno) => {

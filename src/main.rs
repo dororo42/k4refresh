@@ -28,6 +28,7 @@ fn usage() -> ! {
          \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--label A]\n\
          \x20                 [--delay-ms 3000] [--out latency.csv] [--sync]\n\
          \x20                 [--seq fast,fast,fast,slow] [--pattern checker|gray] [--quant]\n\
+         \x20                 [--shot-idx 1]（该帧显示「标记+请拍摄」横幅，供相机记录）\n\
          \n\
          fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）\n\
          fxupdate --which: -1=无变换 21=反色（fx_t Shim 变换）",
@@ -256,6 +257,10 @@ fn main() -> ExitCode {
             let pattern = bench::parse_pattern(&a.flag("--pattern").unwrap_or_default());
             let quant = a.has("--quant");
             let sync = a.has("--sync");
+            let shot_idx: usize = a
+                .flag("--shot-idx")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1);
             let rc = match a.flag("--seq").map(|s| bench::parse_fx_list(&s)) {
                 Some(seq) if seq.is_empty() => {
                     k4refresh::eink::close_fd(fd);
@@ -263,10 +268,10 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
                 Some(seq) => bench::run_seq(
-                    fd, &v, &f, &seq, n, &out, &label, delay_ms, pattern, quant, sync,
+                    fd, &v, &f, &seq, n, &out, &label, delay_ms, pattern, quant, sync, shot_idx,
                 ),
                 None => bench::run(
-                    fd, &v, &f, &fx_list, n, &out, &label, delay_ms, pattern, quant, sync,
+                    fd, &v, &f, &fx_list, n, &out, &label, delay_ms, pattern, quant, sync, shot_idx,
                 ),
             };
             k4refresh::eink::close_fd(fd);
