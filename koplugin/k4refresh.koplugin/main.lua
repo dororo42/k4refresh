@@ -115,6 +115,7 @@ end
 function K4R:setInterval(n)
     self.interval = n
     self.flips = 0
+    self:takeover_builtin_refresh()
     os.execute("mkdir -p /mnt/us/k4refresh 2>/dev/null")
     local f = io.open(MODE_CONF, "w")
     if f then
@@ -132,6 +133,27 @@ function K4R:onReaderReady()
     self:loadConf()
     self.flips = 0
     self.last_pageno = nil
+    self:takeover_builtin_refresh()
+end
+
+-- 收尾策略接管：ghost 模式激活时关闭 KOReader 内置的每 N 页 promotion 全刷
+-- （UIManager 默认 FULL_REFRESH_COUNT=6，会与插件收尾叠加成双黑闪）；
+-- ghost 关闭时恢复默认 6。setRefreshRate 会持久化 full_refresh_count。
+function K4R:takeover_builtin_refresh()
+    pcall(function()
+        local UIManager = require("ui/uimanager")
+        if not UIManager.setRefreshRate then
+            logger.warn("K4Refresh: UIManager.setRefreshRate 不可用，跳过内置全刷接管")
+            return
+        end
+        if self.interval then
+            UIManager:setRefreshRate(0)
+            logger.info("K4Refresh: KOReader builtin full-refresh disabled (plugin owns policy)")
+        else
+            UIManager:setRefreshRate(6)
+            logger.info("K4Refresh: ghost off -> KOReader builtin full-refresh restored to 6")
+        end
+    end)
 end
 
 function K4R:onPageUpdate(pageno)
