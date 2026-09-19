@@ -11,6 +11,8 @@
 > 2. KOReader 翻页路径不经本库，v0.1.x 的 fast/conservative 模式无消费者（架构事实，v0.1.2 已确认）。
 >
 > 因此 v0.1.4 主线改为 **O-1 v2 重影优先模式**：翻页保持原生 partial，由 `k4refresh.koplugin` 插件做翻页计数，每 N 页触发一次 `fx_update_slow` 收尾清残影（Ghost Budget 落地版），大步长跳转立即收尾；FFI 不可用自动回退静态 CLI。本文件 §3/§7 的测试方法论仍然有效。
+>
+> **真机补充（2026-09-19 部署冒烟）**：KOReader 内 dlopen libk4refresh.so 失败已定性——设备用户态为 armel/softfp + glibc 2.12.1，而 gnueabihf 产物（armhf + GLIBC_2.18~2.34 版本标签）无法加载；动态 CLI 同因无法启动。插件/桥的静态 CLI 回退路径实测可用（日志 `via=cli`）。**v0.1.5 待办**：用 koxtoolchain（armel、glibc 2.12 世代 sysroot）重建 cdylib 以恢复 FFI 路径；musl cdylib 仍受 rustc 限制不可用。静态 CLI 不受影响（静态二进制无 ABI 依赖）。
 
 ---
 
@@ -50,7 +52,7 @@
 | SoC | Freescale i.MX508（ARM Cortex-A8, ARMv7-A） | ✅ 已核实 | KOReader `device.lua` Kindle4 定义；实机 `cat /proc/cpuinfo` 复核 |
 | 面板 | 6" E-Ink Pearl，600×800，8bpp 灰阶（反色 palette） | ✅ 已核实 | KOReader Kindle4 注释 "running @ 8bpp, expecting an inverted palette"；实机 `k4refresh-cli info` 复核 |
 | 固件 | FW 4.1.4（K4 最终版） | ✅ 已核实 | 设置→设备信息；也适用于 4.x 其他小版本 |
-| 用户态 ABI | hardfp（armhf），存在 `/lib/ld-linux-armhf.so.3` | ✅ 已核实 | KOReader `isHardFP()` 分流逻辑；实机 `ls /lib/ld-linux-armhf.so.3` 复核 |
+| 用户态 ABI | **armel/softfp**（`/lib/ld-linux.so.3` → glibc 2.12.1；~~hardfp~~ 早期"armhf 已核实"系误判，2026-09-19 实机纠正：`ld-linux-armhf.so.3` 不存在，KOReader LuaJIT 亦用 `/lib/ld-linux.so.3`） | ✅ 已核实（实机） | `ls /lib/ld-*`；KOReader luajit 二进制的 PT_INTERP；动态 CLI 在机上报"not found"（解释器缺失） |
 | 内核 | 2.6.31-rt11-lab126（FW 4.1.4） | ✅ 已核实（2026-09-19 实机） | `cat /proc/version`：2.6.31-rt11-lab126 #5（gcc 4.5.3 Linaro，2013-01-12 构建） |
 | eink 驱动接口 | legacy einkfb：`FBIO_EINK_UPDATE_DISPLAY`(0x46db) / `FBIO_EINK_UPDATE_DISPLAY_AREA`(0x46dd) | ✅ 已核实 | FBInk `refresh_legacy()`（注释原文 "[K2<->K4]"） |
 | 刷新类型 | fx_update_partial=0 / full=1 / fast=2 / slow=3（+特效 flash/invert） | ✅ 已核实 | FBInk `einkfb.h` `enum fx_type`；KOReader `ffi/einkfb_h.lua` cdef 同值 |

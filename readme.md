@@ -140,7 +140,7 @@ sync
 
 - 仅适用 Kindle 4（Non-Touch，FW 4.1.4，legacy einkfb）；mxcfb 机型不适用。
 - v0.1.4 插件接管的是"收尾调度"：翻页本身仍是 KOReader 原生 partial；插件每 N 页触发一次 slow 收尾。直接改写 KOReader 刷新后端（让翻页走 fast 档）未实现——真机实测三种 fx 在真实翻页下视觉不可分辨，该路径的收益存疑，暂缓。
-- 插件 flash 走 libk4refresh.so（FFI）；.so 加载失败自动回退静态 CLI，两者都不在时收尾静默失败（不阻塞阅读）。
+- **KOReader 内 FFI 当前不可用（已知，2026-09-19 实机定性）**：K4 用户态为 armel/softfp + glibc 2.12.1，gnueabihf 产物（armhf + GLIBC_2.18~2.34 标签）无法 dlopen。插件与 Lua 桥均自动回退静态 CLI（实测可用）；FFI 路径待 v0.1.5 用 koxtoolchain armel 重建 .so 恢复。
 - KUAL 改档在下次开书后生效；KOReader 菜单改档即时生效。
 - fast/conservative 库内模式只影响经本库（CLI refresh / Lua 桥 `K4R.refresh`）发起的刷新；无翻页路径消费者（v0.1.x 历史接口，保留仅为 ABI 兼容）。
 - Windows 主机不可编译本 crate（`libc::ioctl` 仅 POSIX）；测试/构建用 Linux 或 CI。

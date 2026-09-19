@@ -27,10 +27,17 @@ local MODE_CONF_CANDIDATES = {
     "k4refresh/mode.conf",
 }
 
+-- FFI 路径不可用时的兜底：静态 CLI（零依赖，任何 ABI 的宿主进程都能 spawn）。
+-- 真机 2026-09-19 证实：K4 用户态为 armel/softfp（/lib/ld-linux.so.3）+ glibc
+-- 2.12.1，而 armhf/glibc≥2.18 基线的 libk4refresh.so 无法 dlopen——回退路径
+-- 是当前设备上唯一可用的 KOReader 内入口（插件同款逻辑）。
+local CLI = "/mnt/us/k4refresh/k4refresh-cli"
+
 local K4R = {
     loaded = false,
-    fd = -1,
     ok = false,
+    fd = -1,
+    via_cli = false,
 }
 
 local function library_candidates()
@@ -45,40 +52,57 @@ end
 function K4R.init()
     if K4R.loaded then return K4R.ok end
     K4R.loaded = true
-    local ffi_ok, ffi = pcall(require, "ffi")
-    if not ffi_ok then
-        logger.warn("K4Refresh: LuaJIT FFI 不可用，插件停用")
-        return false
-    end
-    -- C ABI 与 src/lib.rs 的 #[no_mangle] 导出一一对应
-    ffi.cdef[[
-        int  k4refresh_open(const char *path);
-        int  k4refresh_refresh(int fd, unsigned int kind, int x1, int y1, int x2, int y2);
-        int  k4refresh_flash(int fd);
-        void k4refresh_set_mode(unsigned int mode, unsigned int interval);
-        int  k4refresh_screen_size(int fd, int *w_out, int *h_out);
-        int  k4refresh_last_error(char *buf, int len);
-        void k4refresh_close(int fd);
-    ]]
+
     local lib = nil
-    for _, name in ipairs(library_candidates()) do
-        local ok, handle = pcall(ffi.load, name)
-        if ok then lib = handle; break end
+    local ffi_ok, ffi = pcall(require, "ffi")
+    if ffi_ok then
+        -- C ABI 与 src/lib.rs 的 #[no_mangle] 导出一一对应
+        ffi.cdef[[
+            int  k4refresh_open(const char *path);
+            int  k4refresh_refresh(int fd, unsigned int kind, int x1, int y1, int x2, int y2);
+            int  k4refresh_flash(int fd);
+            void k4refresh_set_mode(unsigned int mode, unsigned int interval);
+            int  k4refresh_screen_size(int fd, int *w_out, int *h_out);
+            int  k4refresh_last_error(char *buf, int len);
+            void k4refresh_close(int fd);
+        ]]
+        for _, name in ipairs(library_candidates()) do
+            local ok, handle = pcall(ffi.load, name)
+            if ok then lib = handle; break end
+        end
+        if lib then
+            local fd = lib.k4refresh_open("/dev/fb0")
+            if fd >= 0 then
+                K4R.lib = lib
+                K4R.fd = fd
+                K4R.via_cli = false
+                K4R.ok = true
+                logger.info("K4Refresh: FFI 已加载，fd =", fd)
+            else
+                logger.warn("K4Refresh: 打开 /dev/fb0 失败，回退静态 CLI")
+            end
+        else
+            logger.warn("K4Refresh: libk4refresh.so dlopen 失败（armel 设备 + armhf 产物，见已知边界），回退静态 CLI")
+        end
+    else
+        logger.warn("K4Refresh: LuaJIT FFI 不可用，回退静态 CLI")
     end
-    if not lib then
-        logger.warn("K4Refresh: libk4refresh.so 未找到（见方案文档 §6 部署步骤）")
-        return false
+
+    if not K4R.ok then
+        -- CLI 兜底：只要求二进制存在且可执行
+        local f = io.open(CLI, "r")
+        if f then
+            f:close()
+            K4R.via_cli = true
+            K4R.ok = true
+            logger.info("K4Refresh: via=cli（静态 CLI 兜底）")
+        else
+            logger.warn("K4Refresh: CLI 兜底也不可用（", CLI, " 不存在），停用")
+            return false
+        end
     end
-    K4R.lib = lib
-    local fd = lib.k4refresh_open("/dev/fb0")
-    if fd < 0 then
-        logger.warn("K4Refresh: 打开 /dev/fb0 失败")
-        return false
-    end
-    K4R.fd = fd
-    K4R.ok = true
-    K4R.load_mode_from_file()   -- 应用 KUAL「Set Fast/Conservative」写入的模式
-    logger.info("K4Refresh: 已加载，fd =", fd)
+
+    K4R.load_mode_from_file()   -- 应用 KUAL「Ghost 档位」写入的模式文件
     return true
 end
 
@@ -109,26 +133,46 @@ function K4R.load_mode_from_file()
 end
 
 -- kind: 0=翻页/局部 1=UI 2=显式全刷（与 fx.rs KIND_* 一致）
+-- via=cli 时经静态 CLI 一次性执行（区域参数仅 FFI 路径支持）
 function K4R.refresh(kind, x1, y1, x2, y2)
     if not K4R.ok then return nil end
+    if K4R.via_cli then
+        local k = ({ [0] = "page", [1] = "ui", [2] = "full" })[kind or 0] or "page"
+        if k == "full" then
+            return K4R.flash()
+        end
+        os.execute(CLI .. " refresh --kind " .. k .. " >/dev/null 2>&1")
+        return true
+    end
     return K4R.lib.k4refresh_refresh(K4R.fd, kind or 0,
         x1 or 0, y1 or 0, x2 or 0, y2 or 0)
 end
 
 function K4R.flash()
     if not K4R.ok then return nil end
+    if K4R.via_cli then
+        os.execute(CLI .. " flash >/dev/null 2>&1")
+        return true
+    end
     return K4R.lib.k4refresh_flash(K4R.fd)
 end
 
 -- mode: 0=fast 1=conservative；interval: N 次翻页后 slow 收尾
+-- 注：库内模式无翻页路径消费者（见已知边界），跨进程档位以 mode.conf
+-- + 插件为准；此接口保留为 ABI 兼容，via=cli 时仅记录。
 function K4R.set_mode(mode, interval)
     if not K4R.ok then return nil end
+    if K4R.via_cli then
+        logger.info("K4Refresh: set_mode 忽略（via=cli，档位由 mode.conf/插件管理）")
+        return true
+    end
     K4R.lib.k4refresh_set_mode(mode or 0, interval or 6)
     return true
 end
 
 function K4R.screen_size()
     if not K4R.ok then return nil end
+    if K4R.via_cli then return nil end
     local ffi = require("ffi")
     local w = ffi.new("int[1]")
     local h = ffi.new("int[1]")
@@ -139,7 +183,7 @@ function K4R.screen_size()
 end
 
 function K4R.close()
-    if K4R.ok and K4R.fd >= 0 then
+    if K4R.ok and not K4R.via_cli and K4R.fd >= 0 then
         K4R.lib.k4refresh_close(K4R.fd)
     end
     K4R.ok = false
