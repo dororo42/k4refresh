@@ -114,12 +114,8 @@ fn main() -> ExitCode {
             };
             let fxv = k4refresh::refresh(fd, kind, x1, y1, x2, y2);
             match fxv {
-                Ok(n) if n >= 0 => {
+                Ok(n) => {
                     println!("ok: fx={n}（0=partial 2=fast 3=slow；0 也可能是空区域跳过）");
-                    k4refresh::eink::close_fd(fd);
-                    ExitCode::SUCCESS
-                }
-                Ok(_) => {
                     k4refresh::eink::close_fd(fd);
                     ExitCode::SUCCESS
                 }
@@ -150,6 +146,15 @@ fn main() -> ExitCode {
             let n: u32 = a.flag("--n").and_then(|s| s.parse().ok()).unwrap_or(20);
             let out = a.flag("--out").unwrap_or_else(|| "latency.csv".into());
             let (fd, v) = open_fb_or_die();
+            // bench 逐字节写帧假设 8bpp；非 8bpp 面板上会错位写花显存，直接拒绝。
+            if v.bits_per_pixel != 8 {
+                k4refresh::eink::close_fd(fd);
+                eprintln!(
+                    "错误: bpp={} ≠ 8，bench 的逐字节写帧仅适配 8bpp（K4），拒绝执行",
+                    v.bits_per_pixel
+                );
+                return ExitCode::FAILURE;
+            }
             let f = k4refresh::eink::fix_info(fd).unwrap_or_else(|e| {
                 eprintln!("错误: {e}");
                 std::process::exit(1);

@@ -1,9 +1,9 @@
 # k4refresh — Kindle 4 E-Ink 刷新策略控制器
 
-Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页走 `fx_update_fast` 快速档 + 每 N 页 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
+Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KOReader 原生 partial，KOReader 插件按 ghost 档位每 N 页自动 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
 
-- ⚠️ **状态：v0.1.1，设备端真机实测尚未完成**——部署前请阅读 [k4refresh技术方案.md](k4refresh技术方案.md) §7 测试表与 §9 风险清单，`info` 冒烟失败立即停用。
-- 📦 下载：[Releases](https://github.com/dororo42/k4refresh/releases) 页 zip 包（含 CLI / .so / Lua 桥 / KUAL 扩展 / SHA256SUMS）；或 Actions → build → artifacts。
+- ⚠️ **状态：v0.1.4，插件（重影优先模式）已实现，真机感知验收进行中**——部署前请阅读 [k4refresh技术方案.md](k4refresh技术方案.md) §7 测试表与 §9 风险清单，`info` 冒烟失败立即停用。
+- 📦 下载：[Releases](https://github.com/dororo42/k4refresh/releases) 页 zip 包（含 CLI / .so / Lua 桥 / KOReader 插件 / KUAL 扩展 / SHA256SUMS）；或 Actions → build → artifacts。
 - 🤖 CI：push 自动构建 ARM 产物；打 `v*` tag 自动发布 Release。
 
 ---
@@ -14,7 +14,8 @@ Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页走 `fx_upda
 k4refresh-cli            ← 静态 CLI（musl，首选，零依赖）
 k4refresh-cli-dynamic    ← 动态 CLI（gnueabihf，备选）
 libk4refresh.so          ← 共享库（KOReader LuaJIT FFI 加载，gnueabihf）
-lua/k4refresh.lua        ← KOReader 桥接脚本
+k4refresh.koplugin/      ← KOReader 插件：重影优先模式（每 N 页自动 slow 收尾）
+lua/k4refresh.lua        ← KOReader 桥接脚本（控制台手动用）
 kual/config.xml          ← KUAL 菜单注册
 kual/bin/k4r.sh          ← KUAL 菜单脚本
 kual/bin/k4refresh-cli   ← KUAL 用的 CLI 副本
@@ -40,12 +41,13 @@ SSH 通道（二选一，推荐 A）：
 
 ```bash
 # 解压 zip 后，在 zip 目录内执行（IP/端口按你的 SSH 通道调整；scp 加 -P 2222）
-ssh -P 2222 root@192.168.2.x "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin"
+ssh -P 2222 root@192.168.2.x "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin /mnt/us/koreader/plugins"
 scp -P 2222 k4refresh-cli libk4refresh.so root@192.168.2.x:/mnt/us/k4refresh/
 scp -P 2222 k4refresh-cli                 root@192.168.2.x:/mnt/us/extensions/k4refresh/bin/
 scp -P 2222 kual/config.xml               root@192.168.2.x:/mnt/us/extensions/k4refresh/
 scp -P 2222 kual/bin/k4r.sh               root@192.168.2.x:/mnt/us/extensions/k4refresh/bin/
 scp -P 2222 lua/k4refresh.lua             root@192.168.2.x:/mnt/us/koreader/   # 文件名小写
+scp -P 2222 -r k4refresh.koplugin         root@192.168.2.x:/mnt/us/koreader/plugins/
 ssh -P 2222 root@192.168.2.x "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4refresh/bin/* && sync"
 ```
 
@@ -53,19 +55,30 @@ ssh -P 2222 root@192.168.2.x "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4
 
 ## 4. 使用
 
-### 4.1 KUAL 菜单（主入口）
+### 4.1 KOReader 插件（重影优先模式，主入口）
 
-KUAL → K4Refresh：
+重启 KOReader 后主菜单出现 **K4Refresh (ghost clearing)**：
 
 | 菜单项 | 动作 |
 |---|---|
 | Full Refresh (slow) | 立即整屏 slow 全刷，清残影 |
-| Set Fast (6) | 写入模式文件 `mode.conf`：fast 档翻页，每 6 页 slow 收尾（KOReader 重启或 `K4R.init()` 后生效） |
-| Set Conservative | 写入 `mode.conf`：翻页保持原生 partial（等价原生行为，只是全刷走 slow） |
+| Ghost clearing: Off / Every 4 / 6 / 8 pages | 设定每 N 页自动 slow 收尾（即时生效，并写入 mode.conf 与 KUAL/CLI 共享） |
+
+行为：翻页保持原生 partial 不变；每 N 次翻页自动触发一次 slow 全刷（闪烁一次、残影清零）；章节/跳页等大步长跳转（|Δ页|>1）立即收尾。FFI/.so 不可用时插件自动回退静态 CLI，收尾动作不中断。
+
+### 4.2 KUAL 菜单
+
+KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜单则即时生效）：
+
+| 菜单项 | 动作 |
+|---|---|
+| Full Refresh (slow) | 立即整屏 slow 全刷，清残影 |
+| Ghost: Off | mode.conf 写 `off`：关闭自动收尾 |
+| Ghost: Every 4 / 6 / 8 Pages | mode.conf 写 `ghost N`：每 N 页收尾 |
 | Screen Info | 屏显分辨率/位深（600x800, bpp=8 为正常） |
 | Benchmark (CSV) | 跑 bench，结果落 `/mnt/us/k4refresh/bench.csv` |
 
-### 4.2 命令行（SSH）
+### 4.3 命令行（SSH）
 
 ```bash
 /mnt/us/k4refresh/k4refresh-cli --version                  # 打印版本
@@ -85,7 +98,7 @@ KUAL → K4Refresh：
 #   - 完成消息为「N 行写入 xxx（M 次 ioctl 失败）」，M>0 才需要关注 CSV error 列
 ```
 
-### 4.3 KOReader 内（Lua 桥，手动模式）
+### 4.4 KOReader 内（Lua 桥，手动模式）
 
 KOReader 菜单 → 更多工具 → Lua 调试台：
 
@@ -126,5 +139,8 @@ sync
 ## 7. 已知边界
 
 - 仅适用 Kindle 4（Non-Touch，FW 4.1.4，legacy einkfb）；mxcfb 机型不适用。
-- fast/conservative 模式只影响经本库（CLI refresh / Lua 桥）发起的刷新；KOReader 原生翻页不经本库，自动接管属第二阶段（风险 R4），暂未实现。
+- v0.1.4 插件接管的是"收尾调度"：翻页本身仍是 KOReader 原生 partial；插件每 N 页触发一次 slow 收尾。直接改写 KOReader 刷新后端（让翻页走 fast 档）未实现——真机实测三种 fx 在真实翻页下视觉不可分辨，该路径的收益存疑，暂缓。
+- 插件 flash 走 libk4refresh.so（FFI）；.so 加载失败自动回退静态 CLI，两者都不在时收尾静默失败（不阻塞阅读）。
+- KUAL 改档在下次开书后生效；KOReader 菜单改档即时生效。
+- fast/conservative 库内模式只影响经本库（CLI refresh / Lua 桥 `K4R.refresh`）发起的刷新；无翻页路径消费者（v0.1.x 历史接口，保留仅为 ABI 兼容）。
 - Windows 主机不可编译本 crate（`libc::ioctl` 仅 POSIX）；测试/构建用 Linux 或 CI。

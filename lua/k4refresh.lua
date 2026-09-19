@@ -1,9 +1,9 @@
--- k4refresh.lua — KOReader 端最小桥接（方案文档 §6 步骤 3 的载体）
+-- k4refresh.lua — KOReader 端最小桥接（手动/控制台用）
 --
--- 作用：把 libk4refresh.so 暴露成 KOReader 内可调用的刷新接口。
+-- v0.1.4 起自动化的主路径是 k4refresh.koplugin 插件（翻页计数收尾），
+-- 本桥保留给 Lua 调试台手动调用与接口验证。两者共享 libk4refresh.so。
 -- 这是最小可用版本：手动模式（KK code 触发全刷 / 菜单脚本设模式），
--- 不自动接管 refreshPartial/refreshFull —— 自动接管属于第二阶段，
--- 需要按 KOReader nightly 的 einkfb 后端接口重新对齐（文档 §8 风险 R4）。
+-- 不自动接管 refreshPartial/refreshFull —— 自动接管见插件（技术方案 O-1 v2）。
 --
 -- 安装位置（二选一，文档 §6）：
 --   A. koreader/settings/ 旁的自定义目录（推荐，免碰 KOReader 本体）
@@ -82,8 +82,9 @@ function K4R.init()
     return true
 end
 
--- 读取 KUAL 写入的模式文件并应用。返回 true 表示已应用，否则 nil。
--- 文件格式: "fast N"（每 N 页 slow 收尾）或 "conservative"；内容非法则静默忽略。
+-- 读取 KUAL/插件写入的模式文件并应用。返回 true 表示已应用，否则 nil。
+-- 文件格式: "ghost N"/"fast N"（fast 为 v0.1.x 旧档等价迁移）或
+-- "conservative"/"off"；内容非法则静默忽略。
 function K4R.load_mode_from_file()
     if not K4R.ok then return nil end
     for _, path in ipairs(MODE_CONF_CANDIDATES) do
@@ -93,13 +94,13 @@ function K4R.load_mode_from_file()
             f:close()
             local mode = line:match("^(%S+)")
             local n = tonumber(line:match("^%S+%s+(%S+)"))
-            if mode == "fast" then
+            if mode == "ghost" or mode == "fast" then
                 K4R.set_mode(0, n or 6)
                 logger.info("K4Refresh: mode.conf -> fast interval =", n or 6)
                 return true
-            elseif mode == "conservative" then
+            elseif mode == "conservative" or mode == "off" then
                 K4R.set_mode(1, 6)
-                logger.info("K4Refresh: mode.conf -> conservative")
+                logger.info("K4Refresh: mode.conf -> conservative/off")
                 return true
             end
         end

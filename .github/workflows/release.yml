@@ -59,19 +59,21 @@ jobs:
           cp target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli "$ST/k4refresh-cli-dynamic"
           cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so "$ST/"
           cp lua/k4refresh.lua "$ST/lua/"
+          cp -r koplugin/k4refresh.koplugin "$ST/"
           cp kual/config.xml "$ST/kual/"
           cp kual/k4r.sh "$ST/kual/bin/"
           cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli "$ST/kual/bin/k4refresh-cli"
           cat > "$ST/INSTALL.txt" <<'EOF'
-          k4refresh 安装速查（前置：越狱 + KUAL + USBNetwork；IP 按实际调整）
+          k4refresh 安装速查（前置：越狱 + KUAL + KOReader；IP 按实际调整）
           在解压目录内执行：
 
-            ssh root@192.168.15.244 "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin"
+            ssh root@192.168.15.244 "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin /mnt/us/koreader/plugins"
             scp k4refresh-cli libk4refresh.so root@192.168.15.244:/mnt/us/k4refresh/
             scp k4refresh-cli                 root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
             scp kual/config.xml               root@192.168.15.244:/mnt/us/extensions/k4refresh/
             scp kual/bin/k4r.sh               root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
             scp lua/k4refresh.lua             root@192.168.15.244:/mnt/us/koreader/
+            scp -r k4refresh.koplugin         root@192.168.15.244:/mnt/us/koreader/plugins/
             ssh root@192.168.15.244 "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4refresh/bin/* && sync"
 
           部署后冒烟（任一失败立即停用并卸载）：
@@ -80,8 +82,12 @@ jobs:
             /mnt/us/k4refresh/k4refresh-cli info     # 预期 600x800, bpp=8
             /mnt/us/k4refresh/k4refresh-cli flash    # 预期屏幕闪烁一次
 
-          使用：KUAL → K4Refresh 菜单；KOReader Lua 台 require("k4refresh")（文件名小写）。
-          卸载：rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh && rm -f /mnt/us/koreader/k4refresh.lua
+          使用：KUAL → K4Refresh（ghost 档位，开书后生效）；
+          KOReader 主菜单 → K4Refresh (ghost clearing)（即时生效）。
+          部署/更新后需重启 KOReader（插件只在启动时扫描 plugins/）。
+          卸载：rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh
+                /mnt/us/koreader/plugins/k4refresh.koplugin
+                && rm -f /mnt/us/koreader/k4refresh.lua
           完整文档：https://github.com/dororo42/k4refresh#readme
           EOF
           cd "$ST"
@@ -98,11 +104,18 @@ jobs:
           cat > release_notes.md <<EOF
           ## k4refresh ${GITHUB_REF_NAME}
 
-          Kindle 4（legacy einkfb）刷新策略控制器。zip 内容：静态 CLI、动态 CLI、
-          libk4refresh.so、KOReader Lua 桥、KUAL 扩展、INSTALL.txt、SHA256SUMS.txt。
+          Kindle 4（legacy einkfb）刷屏策略控制器。zip 内容：静态 CLI、动态 CLI、
+          libk4refresh.so、KOReader Lua 桥、KOReader 插件（重影优先模式：每 N 页
+          自动 slow 收尾清残影）、KUAL 扩展、INSTALL.txt、SHA256SUMS.txt。
+
+          ### v${GITHUB_REF_NAME} 亮点
+          - k4refresh.koplugin：翻页保持原生 partial，每 N 页（4/6/8，菜单可调）
+            自动 slow 全刷清残影；章节/跳页立即收尾；FFI 不可用自动回退静态 CLI。
+          - KUAL 菜单：Ghost Off / Every 4 / Every 6 / Every 8 多档。
+          - bench 增加 bpp=8 防御校验。
 
           ### 安装
-          解压后按包内 \`INSTALL.txt\` 逐条执行（前置：越狱 + KUAL + USBNetwork）。
+          解压后按包内 \`INSTALL.txt\` 逐条执行（前置：越狱 + KUAL + KOReader）。
 
           ### 冒烟（任一失败立即停用）
           \`\`\`
@@ -112,10 +125,12 @@ jobs:
 
           ### 回滚
           \`\`\`
-          rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh && rm -f /mnt/us/koreader/k4refresh.lua
+          rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh \\
+                 /mnt/us/koreader/plugins/k4refresh.koplugin
+          rm -f /mnt/us/koreader/k4refresh.lua
           \`\`\`
 
-          ⚠️ 设备端真机实测仍在进行中，属实验性版本；详见 README 已知边界与风险清单。
+          ⚠️ 插件已在真机完成部署冒烟；残影改善的感知验收仍在进行中。
           EOF
           gh release create "$GITHUB_REF_NAME" "${ST}.zip" "${ST}.zip.sha256" \
             --title "k4refresh ${GITHUB_REF_NAME}" --notes-file release_notes.md
