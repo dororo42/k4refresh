@@ -14,7 +14,7 @@
 //! `--delay-ms N` 在相邻两次刷新之间暂停 N 毫秒，供真机肉眼逐次辨认标记
 //! （人眼跟随连发刷新不可行；最后一组刷新后不延时，立即恢复画面）。
 
-use k4refresh::eink::{update_area, FixScreenInfo, UpdateArea, VarScreenInfo};
+use k4refresh::eink::{update_area, wait_for_update, FixScreenInfo, UpdateArea, VarScreenInfo};
 use k4refresh::fx::{FX_FAST, FX_PARTIAL, FX_SLOW};
 use std::io::{self, Write};
 use std::os::raw::c_int;
@@ -31,6 +31,21 @@ pub fn parse_fx_list(s: &str) -> Vec<i32> {
             _ => None,
         })
         .collect()
+}
+
+/// bench 图案：checker=交替棋盘（历史行为）；gray=灰阶条带（E5 残影观察）。
+#[derive(Clone, Copy, PartialEq)]
+pub enum Pattern {
+    Checker,
+    Gray,
+}
+
+/// 解析 --pattern 参数；非法值回退 checker。
+pub fn parse_pattern(s: &str) -> Pattern {
+    match s.trim() {
+        "gray" => Pattern::Gray,
+        _ => Pattern::Checker,
+    }
 }
 
 /// 5x7 列式点阵字模（bit0 = 顶行像素）。只含 bench 标记所需字符。
@@ -108,13 +123,48 @@ fn draw_label(fb: *mut u8, v: &VarScreenInfo, f: &FixScreenInfo, label: &str) {
 
 /// 写第 frame 帧棋盘图案（8px 方块，黑白反相）+ 次序标记。
 /// stride 取 line_length（可能大于 xres），只写可见区，避免污染驱动私有区。
-fn draw_pattern(fb: *mut u8, v: &VarScreenInfo, f: &FixScreenInfo, frame: u32, label: &str) {
+fn draw_pattern(
+    fb: *mut u8,
+    v: &VarScreenInfo,
+    f: &FixScreenInfo,
+    frame: u32,
+    label: &str,
+    pattern: Pattern,
+    quant: bool,
+) {
     unsafe {
-        for y in 0..v.yres as usize {
-            let row = fb.add(y * f.line_length as usize);
-            for x in 0..v.xres as usize {
-                let block = ((x / 8) + (y / 8) + frame as usize) % 2;
-                *row.add(x) = if block == 0 { 0x00 } else { 0xFF };
+        match pattern {
+            Pattern::Checker => {
+                for y in 0..v.yres as usize {
+                    let row = fb.add(y * f.line_length as usize);
+                    for x in 0..v.xres as usize {
+                        let block = ((x / 8) + (y / 8) + frame as usize) % 2;
+                        *row.add(x) = if block == 0 { 0x00 } else { 0xFF };
+                    }
+                }
+            }
+            Pattern::Gray => {
+                // 32 条带（每条 25px），值步进 8：含非 16 级字节（如 0x08/0x18）。
+                // frame 反相产生内容交替；quant 把每字节折到最近 16 级并
+                // nibble 双写（c<<4|c>>4），模拟 Duokan 的 16 级量化渲染。
+                let yres = v.yres as usize;
+                let bands = 32usize;
+                let band_h = (yres / bands).max(1);
+                for y in 0..yres {
+                    let band = y / band_h;
+                    let mut val = ((band * 8) & 0xFF) as u8;
+                    if frame % 2 == 1 {
+                        val = 255 - val;
+                    }
+                    if quant {
+                        let q = (((val as u32) + 8) / 17 * 17).min(255) as u8;
+                        val = q | (q >> 4);
+                    }
+                    let row = fb.add(y * f.line_length as usize);
+                    for x in 0..v.xres as usize {
+                        *row.add(x) = val;
+                    }
+                }
             }
         }
     }
@@ -153,7 +203,8 @@ fn unmap_fb(ptr: *mut u8, len: usize) -> io::Result<()> {
 }
 
 /// 单次测量：写图案+标记（不计入计时）→ 整屏区域刷新 → 计时。
-/// 返回 (ioctl 提交耗时 usec, 失败时的 errno)。
+/// --sync 时刷新成功后追加 fsync（= WAITFORVSYNC）计时（E1 真实完成时间）。
+/// 返回 (ioctl 提交耗时 usec, fsync 完成耗时 usec, 失败时的 errno)。
 fn time_update(
     fd: c_int,
     fb: *mut u8,
@@ -162,13 +213,27 @@ fn time_update(
     fxv: i32,
     frame: u32,
     label: &str,
-) -> (u128, Option<i32>) {
-    draw_pattern(fb, v, f, frame, label);
+    pattern: Pattern,
+    quant: bool,
+    sync: bool,
+) -> (u128, u128, Option<i32>) {
+    draw_pattern(fb, v, f, frame, label, pattern, quant);
     let area = UpdateArea::new(0, 0, v.xres as i32, v.yres as i32, fxv);
     let t0 = Instant::now();
     let r = update_area(fd, &area);
     let usec = t0.elapsed().as_micros();
-    (usec, r.err().and_then(|e| e.raw_os_error()))
+    if r.is_err() {
+        return (usec, 0, r.err().and_then(|e| e.raw_os_error()));
+    }
+    let mut sync_usec = 0u128;
+    if sync {
+        let t1 = Instant::now();
+        if let Err(e) = wait_for_update(fd) {
+            return (usec, 0, e.raw_os_error());
+        }
+        sync_usec = t1.elapsed().as_micros();
+    }
+    (usec, sync_usec, None)
 }
 
 /// mmap 后立即备份当前 fb 内容；restore() 时写回并整屏 slow 刷一次恢复原画面。
@@ -208,6 +273,7 @@ impl<'a> Drop for FbGuard<'a> {
 }
 
 /// 模式一：单 fx 独立计时。返回 (CSV 行数, ioctl 失败次数)。
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     fd: c_int,
     v: &VarScreenInfo,
@@ -217,11 +283,14 @@ pub fn run(
     out_path: &str,
     label: &str,
     delay_ms: u64,
+    pattern: Pattern,
+    quant: bool,
+    sync: bool,
 ) -> io::Result<(usize, usize)> {
     let (fb, len) = map_fb(fd, f)?;
     let guard = FbGuard::new(fd, fb, v, len);
     let mut out = io::BufWriter::new(std::fs::File::create(out_path)?);
-    writeln!(out, "fx,seq,label,ioctl_usec,error")?;
+    writeln!(out, "fx,seq,label,ioctl_usec,sync_usec,error")?;
     let mut rows = 0usize;
     let mut errors = 0usize;
     let mut counter = 0usize;
@@ -230,12 +299,13 @@ pub fn run(
         for i in 0..n {
             counter += 1;
             let mark = format!("{}{}", label, counter);
-            let (usec, err) = time_update(fd, fb, v, f, fxv, i, &mark);
+            let (usec, sync_usec, err) =
+                time_update(fd, fb, v, f, fxv, i, &mark, pattern, quant, sync);
             match err {
-                None => writeln!(out, "{fxv},{i},{mark},{usec},0")?,
+                None => writeln!(out, "{fxv},{i},{mark},{usec},{sync_usec},0")?,
                 Some(errno) => {
                     errors += 1;
-                    writeln!(out, "{fxv},{i},{mark},{usec},{errno}")?;
+                    writeln!(out, "{fxv},{i},{mark},{usec},{sync_usec},{errno}")?;
                 }
             }
             rows += 1;
@@ -252,7 +322,8 @@ pub fn run(
 }
 
 /// 模式二：组合序列计时（如 fast,fast,fast,slow = 一次典型翻页收尾周期）。
-/// 共 rounds 轮，每轮按 seq 顺序逐个测量。CSV 列：fx,round,step,label,ioctl_usec,error。
+/// 共 rounds 轮，每轮按 seq 顺序逐个测量。CSV 列：fx,round,step,label,ioctl_usec,sync_usec,error。
+#[allow(clippy::too_many_arguments)]
 pub fn run_seq(
     fd: c_int,
     v: &VarScreenInfo,
@@ -262,6 +333,9 @@ pub fn run_seq(
     out_path: &str,
     label: &str,
     delay_ms: u64,
+    pattern: Pattern,
+    quant: bool,
+    sync: bool,
 ) -> io::Result<(usize, usize)> {
     if seq.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty seq"));
@@ -269,7 +343,7 @@ pub fn run_seq(
     let (fb, len) = map_fb(fd, f)?;
     let guard = FbGuard::new(fd, fb, v, len);
     let mut out = io::BufWriter::new(std::fs::File::create(out_path)?);
-    writeln!(out, "fx,round,step,label,ioctl_usec,error")?;
+    writeln!(out, "fx,round,step,label,ioctl_usec,sync_usec,error")?;
     let mut rows = 0usize;
     let mut errors = 0usize;
 
@@ -283,12 +357,13 @@ pub fn run_seq(
             } else {
                 mark
             };
-            let (usec, err) = time_update(fd, fb, v, f, fxv, frame, &mark);
+            let (usec, sync_usec, err) =
+                time_update(fd, fb, v, f, fxv, frame, &mark, pattern, quant, sync);
             match err {
-                None => writeln!(out, "{fxv},{round},{step},{mark},{usec},0")?,
+                None => writeln!(out, "{fxv},{round},{step},{mark},{usec},{sync_usec},0")?,
                 Some(errno) => {
                     errors += 1;
-                    writeln!(out, "{fxv},{round},{step},{mark},{usec},{errno}")?;
+                    writeln!(out, "{fxv},{round},{step},{mark},{usec},{sync_usec},{errno}")?;
                 }
             }
             rows += 1;

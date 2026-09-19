@@ -22,6 +22,16 @@ pub const FBIOGET_VSCREENINFO: u64 = 0x4600;
 /// 读取 fb_fix_screeninfo（framebuffer 物理布局，bench 用）。
 pub const FBIOGET_FSCREENINFO: u64 = 0x4602;
 
+/// Shim 富接口（FBInk einkfb.h 新编号）：整屏刷新 + 逐像素 fx + exclude_rects（fx_t*）。
+pub const FBIO_EINK_UPDATE_DISPLAY_FX_NEW: u64 = 0x46e4;
+/// 同上的老编号候选（KindleApp 4.1.4 二进制内出现 0x4642 字面量，编号代际待实测）。
+pub const FBIO_EINK_UPDATE_DISPLAY_FX_OLD: u64 = 0x4642;
+/// virtual_fb 整帧重推（FBInk 新编号 0x46ef；老编号候选 0x4644）。参数为 UPDATE_MODE 值。
+pub const FBIO_EINK_RESTORE_DISPLAY_NEW: u64 = 0x46ef;
+pub const FBIO_EINK_RESTORE_DISPLAY_OLD: u64 = 0x4644;
+/// 标准(fb.h) _IOW('F',0x20,u32)：等待当前刷新完成；也可直接 fsync(fd)（驱动 fsync 同义）。
+pub const FBIO_WAITFORVSYNC: u64 = 0x40044620;
+
 /// ioctl 的 request 参数类型因 libc 实现而异（musl 是 int，glibc 是
 /// unsigned long），用 cfg 包装抹平；`as _` 按包装签名自动转换。
 #[cfg(target_env = "musl")]
@@ -57,6 +67,46 @@ impl UpdateArea {
             y2,
             which_fx,
             buffer: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// C `struct rect_t`（fx_t.exclude_rects 元素，16 字节）。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Rect {
+    pub x1: i32,
+    pub y1: i32,
+    pub x2: i32,
+    pub y2: i32,
+}
+
+/// C `struct fx_t`（linux/einkfb.h，MAX_EXCLUDE_RECTS=8 → 4+4+4+8*16=140 字节）：
+/// update_mode = 实际波形档（UPDATE_MODE 值），which_fx = Shim 逐像素变换
+/// （fx_none=-1 不变换；fx_invert=21 反色）。零值矩形表示不排除。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FxStruct {
+    pub update_mode: i32,
+    pub which_fx: i32,
+    pub num_exclude_rects: i32,
+    pub exclude_rects: [Rect; 8],
+}
+
+impl FxStruct {
+    pub fn new(update_mode: i32, which_fx: i32) -> Self {
+        FxStruct {
+            update_mode,
+            which_fx,
+            num_exclude_rects: 0,
+            exclude_rects: [Rect { x1: 0, y1: 0, x2: 0, y2: 0 }; 8],
+        }
+    }
+
+    pub fn push_exclude(&mut self, x1: i32, y1: i32, x2: i32, y2: i32) {
+        if (self.num_exclude_rects as usize) < self.exclude_rects.len() {
+            self.exclude_rects[self.num_exclude_rects as usize] = Rect { x1, y1, x2, y2 };
+            self.num_exclude_rects += 1;
         }
     }
 }
@@ -165,6 +215,40 @@ pub fn update_area(fd: c_int, area: &UpdateArea) -> io::Result<()> {
 /// 整屏刷新：发 FBIO_EINK_UPDATE_DISPLAY，参数为 fx 值（FBInk 整屏分支同款）。
 pub fn update_display(fd: c_int, which_fx: i32) -> io::Result<()> {
     let rv = unsafe { ioctl_ptr(fd, FBIO_EINK_UPDATE_DISPLAY, which_fx as c_ulong as *mut c_void) };
+    if rv < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Shim 富接口整屏刷新（fx_t*）：update_mode 选波形档，which_fx 选逐像素变换，
+/// 可带 exclude_rects。cmd 传 NEW(0x46e4) 或 OLD(0x4642) 由调用方决定（代际探测）。
+/// unsafe：按驱动 ABI 传 fx_t*，驱动只读入参（变换写在驱动自己的影子缓冲上）。
+pub fn update_display_fx(fd: c_int, cmd: u64, fx: &FxStruct) -> io::Result<()> {
+    let mut f = *fx;
+    let rv = unsafe { ioctl_ptr(fd, cmd, &mut f as *mut FxStruct as *mut c_void) };
+    if rv < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// virtual_fb 整帧重推：RESTORE_DISPLAY，参数为 UPDATE_MODE 值（1=full，
+/// 驱动内部对 restore 强制升级为 slow）。cmd 同样由调用方决定新旧编号。
+pub fn restore_display(fd: c_int, cmd: u64, update_mode: i32) -> io::Result<()> {
+    let rv = unsafe { ioctl_ptr(fd, cmd, update_mode as c_ulong as *mut c_void) };
+    if rv < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// 等待当前刷新完成：fsync(fd)（驱动 fsync = FBIO_WAITFORVSYNC 同义）。
+pub fn wait_for_update(fd: c_int) -> io::Result<()> {
+    let rv = unsafe { libc::fsync(fd) };
     if rv < 0 {
         Err(io::Error::last_os_error())
     } else {

@@ -20,11 +20,17 @@ fn usage() -> ! {
          \x20 k4refresh-cli refresh [--kind page|ui|full] [--mode fast|conservative]\n\
          \x20                 [--interval N] [--x1 A --y1 B --x2 C --y2 D]\n\
          \x20 k4refresh-cli flash                         整屏 fx_update_slow 清残影\n\
+         \x20 k4refresh-cli restore [--mode 0|1] [--cmd new|old|auto]\n\
+         \x20                 virtual_fb 整帧重推（RESTORE_DISPLAY；full 由驱动升级 slow）\n\
+         \x20 k4refresh-cli fxupdate --mode 0|1 --which -1|21 [--exclude X1,Y1,X2,Y2]\n\
+         \x20                 [--exclude2 X1,Y1,X2,Y2] [--cmd new|old|auto]\n\
+         \x20                 UPDATE_DISPLAY_FX：整屏 + 逐像素 fx + 排除矩形\n\
          \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--label A]\n\
-         \x20                 [--delay-ms 3000] [--out latency.csv]\n\
-         \x20                 [--seq fast,fast,fast,slow]（组合序列计时，模拟真实翻页周期）\n\
+         \x20                 [--delay-ms 3000] [--out latency.csv] [--sync]\n\
+         \x20                 [--seq fast,fast,fast,slow] [--pattern checker|gray] [--quant]\n\
          \n\
-         fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）",
+         fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）\n\
+         fxupdate --which: -1=无变换 21=反色（fx_t Shim 变换）",
         env!("CARGO_PKG_VERSION")
     );
     std::process::exit(2);
@@ -141,6 +147,84 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "restore" => {
+            // E3 探针：RESTORE_DISPLAY 整帧重推。新编号 0x46ef 失败时试老编号
+            // 0x4644（KindleApp 4.1.4 二进制内出现，编号代际待实测）。
+            let mode: i32 = a.flag("--mode").and_then(|s| s.parse().ok()).unwrap_or(1);
+            let cmd_pref = a.flag("--cmd").unwrap_or_else(|| "auto".into());
+            let (fd, _) = open_fb_or_die();
+            let attempt = |cmd: u64| k4refresh::eink::restore_display(fd, cmd, mode);
+            let result = match cmd_pref.as_str() {
+                "new" => attempt(k4refresh::eink::FBIO_EINK_RESTORE_DISPLAY_NEW)
+                    .map(|_| "new(0x46ef)"),
+                "old" => attempt(k4refresh::eink::FBIO_EINK_RESTORE_DISPLAY_OLD)
+                    .map(|_| "old(0x4644)"),
+                _ => attempt(k4refresh::eink::FBIO_EINK_RESTORE_DISPLAY_NEW)
+                    .map(|_| "new(0x46ef)")
+                    .or_else(|_| {
+                        attempt(k4refresh::eink::FBIO_EINK_RESTORE_DISPLAY_OLD)
+                            .map(|_| "old(0x4644)")
+                    }),
+            };
+            k4refresh::eink::close_fd(fd);
+            match result {
+                Ok(which) => {
+                    println!("ok: restore 完成（cmd={which}, mode={mode}）");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("错误: restore 失败（新旧编号均试）: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "fxupdate" => {
+            // E2 探针：UPDATE_DISPLAY_FX（fx_t：波形档 + 逐像素变换 + 排除矩形）。
+            let mode: i32 = a.flag("--mode").and_then(|s| s.parse().ok()).unwrap_or(1);
+            let which: i32 = a.flag("--which").and_then(|s| s.parse().ok()).unwrap_or(-1);
+            let cmd_pref = a.flag("--cmd").unwrap_or_else(|| "auto".into());
+            let (fd, v) = open_fb_or_die();
+            let mut fx = k4refresh::eink::FxStruct::new(mode, which);
+            for key in ["--exclude", "--exclude2"] {
+                if let Some(s) = a.flag(key) {
+                    let parts: Vec<i32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                    if parts.len() == 4 {
+                        fx.push_exclude(parts[0], parts[1], parts[2], parts[3]);
+                    } else {
+                        eprintln!("警告: {key} 格式应为 X1,Y1,X2,Y2，已忽略");
+                    }
+                }
+            }
+            let attempt =
+                |cmd: u64| k4refresh::eink::update_display_fx(fd, cmd, &fx);
+            let result = match cmd_pref.as_str() {
+                "new" => attempt(k4refresh::eink::FBIO_EINK_UPDATE_DISPLAY_FX_NEW)
+                    .map(|_| "new(0x46e4)"),
+                "old" => attempt(k4refresh::eink::FBIO_EINK_UPDATE_DISPLAY_FX_OLD)
+                    .map(|_| "old(0x4642)"),
+                _ => attempt(k4refresh::eink::FBIO_EINK_UPDATE_DISPLAY_FX_NEW)
+                    .map(|_| "new(0x46e4)")
+                    .or_else(|_| {
+                        attempt(k4refresh::eink::FBIO_EINK_UPDATE_DISPLAY_FX_OLD)
+                            .map(|_| "old(0x4642)")
+                    }),
+            };
+            k4refresh::eink::close_fd(fd);
+            match result {
+                Ok(which_cmd) => {
+                    let _ = v;
+                    println!(
+                        "ok: fxupdate 完成（cmd={which_cmd}, mode={mode}, which={which}, excludes={})",
+                        fx.num_exclude_rects
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("错误: fxupdate 失败（新旧编号均试）: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "bench" => {
             let fx_list = bench::parse_fx_list(&a.flag("--fx").unwrap_or_else(|| "partial,fast,slow".into()));
             let n: u32 = a.flag("--n").and_then(|s| s.parse().ok()).unwrap_or(20);
@@ -169,14 +253,21 @@ fn main() -> ExitCode {
                 .flag("--delay-ms")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
+            let pattern = bench::parse_pattern(&a.flag("--pattern").unwrap_or_default());
+            let quant = a.has("--quant");
+            let sync = a.has("--sync");
             let rc = match a.flag("--seq").map(|s| bench::parse_fx_list(&s)) {
                 Some(seq) if seq.is_empty() => {
                     k4refresh::eink::close_fd(fd);
                     eprintln!("错误: --seq 未解析出有效 fx（可用: partial,fast,slow）");
                     return ExitCode::FAILURE;
                 }
-                Some(seq) => bench::run_seq(fd, &v, &f, &seq, n, &out, &label, delay_ms),
-                None => bench::run(fd, &v, &f, &fx_list, n, &out, &label, delay_ms),
+                Some(seq) => bench::run_seq(
+                    fd, &v, &f, &seq, n, &out, &label, delay_ms, pattern, quant, sync,
+                ),
+                None => bench::run(
+                    fd, &v, &f, &fx_list, n, &out, &label, delay_ms, pattern, quant, sync,
+                ),
             };
             k4refresh::eink::close_fd(fd);
             match rc {
