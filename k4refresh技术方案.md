@@ -51,7 +51,7 @@
 | 面板 | 6" E-Ink Pearl，600×800，8bpp 灰阶（反色 palette） | ✅ 已核实 | KOReader Kindle4 注释 "running @ 8bpp, expecting an inverted palette"；实机 `k4refresh-cli info` 复核 |
 | 固件 | FW 4.1.4（K4 最终版） | ✅ 已核实 | 设置→设备信息；也适用于 4.x 其他小版本 |
 | 用户态 ABI | hardfp（armhf），存在 `/lib/ld-linux-armhf.so.3` | ✅ 已核实 | KOReader `isHardFP()` 分流逻辑；实机 `ls /lib/ld-linux-armhf.so.3` 复核 |
-| 内核 | 2.6.x 世代（lab126 4.1.4 内核） | ⚠️ 待验证 | 实机 `cat /proc/version` 记录精确版本（影响见 §9 R1） |
+| 内核 | 2.6.31-rt11-lab126（FW 4.1.4） | ✅ 已核实（2026-09-19 实机） | `cat /proc/version`：2.6.31-rt11-lab126 #5（gcc 4.5.3 Linaro，2013-01-12 构建） |
 | eink 驱动接口 | legacy einkfb：`FBIO_EINK_UPDATE_DISPLAY`(0x46db) / `FBIO_EINK_UPDATE_DISPLAY_AREA`(0x46dd) | ✅ 已核实 | FBInk `refresh_legacy()`（注释原文 "[K2<->K4]"） |
 | 刷新类型 | fx_update_partial=0 / full=1 / fast=2 / slow=3（+特效 flash/invert） | ✅ 已核实 | FBInk `einkfb.h` `enum fx_type`；KOReader `ffi/einkfb_h.lua` cdef 同值 |
 | 等待机制 | 无（mxcfb 时代的 marker/wait ioctl 不存在） | ✅ 已核实 | FBInk legacy 分支无任何 wait 调用 |
