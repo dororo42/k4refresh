@@ -7,6 +7,10 @@ report-review-*.md
 K4Refresh 技术方案与开发路线.md
 *重评估报告*.md
 *核实报告*.md
+*调试综合方案*.md
 
 # 本地助手工作目录
 .workbuddy/
+
+# 本机真机调试目录：含设备序列号/口令推导、抓包与波形 dump，严禁入库
+k4r-device/
