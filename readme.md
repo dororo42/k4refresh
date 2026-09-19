@@ -2,7 +2,7 @@
 
 Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KOReader 原生 partial，KOReader 插件按 ghost 档位每 N 页自动 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
 
-- ⚠️ **状态：v0.1.4，插件（重影优先模式）已实现，真机感知验收进行中**——部署前请阅读 [k4refresh技术方案.md](k4refresh技术方案.md) §7 测试表与 §9 风险清单，`info` 冒烟失败立即停用。
+- ⚠️ **状态：v0.1.4，插件（重影优先模式）已实现，真机感知验收进行中**——部署前请阅读技术方案文档（本地工作文件，不入库）的测试表与风险清单，`info` 冒烟失败立即停用。
 - 📦 下载：[Releases](https://github.com/dororo42/k4refresh/releases) 页 zip 包（含 CLI / .so / Lua 桥 / KOReader 插件 / KUAL 扩展 / SHA256SUMS）；或 Actions → build → artifacts。
 - 🤖 CI：push 自动构建 ARM 产物；打 `v*` tag 自动发布 Release。
 
