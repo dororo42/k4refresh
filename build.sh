@@ -1,8 +1,9 @@
 #!/bin/sh
 # k4refresh 交叉构建脚本。
 # 用法:
-#   ./build.sh                       # 默认 musl 静态 target（首选）
-#   ./build.sh gnueabihf             # 回退 glibc 动态 target（需外部交叉 gcc）
+#   ./build.sh                       # 默认 musl 静态 target（唯一分发产物）
+#   ./build.sh gnueabihf             # glibc 动态 target（v0.1.8 方案 A 起停产；
+#                                    #   仅方案 B 本地调试用，产物勿分发）
 #   ./build.sh host                  # 仅本机自测（cargo test 用，产物不部署）
 set -e
 

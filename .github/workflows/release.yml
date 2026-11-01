@@ -17,7 +17,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.1
-          targets: armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf
+          targets: armv7-unknown-linux-musleabihf
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -28,36 +28,20 @@ jobs:
             target
           key: k4refresh-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
-      - name: Cache ARM cross toolchain
-        id: tc-cache
-        uses: actions/cache@v4
-        with:
-          path: /opt/tc
-          key: bootlin-armv7-eabihf-glibc-2024.05-1
-
-      - name: Download ARM glibc cross toolchain (for .so dynamic linking)
-        if: steps.tc-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSLo /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--glibc--stable-2024.05-1.tar.xz
-          mkdir -p /opt/tc && tar xJf /tmp/tc.tar.xz -C /opt/tc --strip-components=1
-
       - name: Run unit tests (host)
         run: cargo test
 
-      - name: Build ARM artifacts
-        run: |
-          cargo build --release --target armv7-unknown-linux-gnueabihf
-          cargo build --release --target armv7-unknown-linux-musleabihf
-        env:
-          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: /opt/tc/bin/arm-buildroot-linux-gnueabihf-gcc
+      # 方案 A（v0.1.8）：gnueabihf 动态产物停产（K4 用户态 armel，
+      # armhf 动态件无法加载/运行，readme §7）；仅构建 musl 静态 CLI。
+      - name: Build ARM static CLI (musl, zero-dependency)
+        run: cargo build --release --target armv7-unknown-linux-musleabihf
+        # .cargo/config.toml 已配置 rust-lld 自包含链接
 
       - name: Package release zip
         run: |
           ST="k4refresh-${GITHUB_REF_NAME}-arm"
           mkdir -p "$ST/lua" "$ST/kual/bin"
           cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli "$ST/k4refresh-cli"
-          cp target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli "$ST/k4refresh-cli-dynamic"
-          cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so "$ST/"
           cp lua/k4refresh.lua "$ST/lua/"
           cp -r koplugin/k4refresh.koplugin "$ST/"
           cp kual/config.xml "$ST/kual/"
@@ -68,7 +52,7 @@ jobs:
           在解压目录内执行：
 
             ssh root@192.168.15.244 "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4refresh/bin /mnt/us/koreader/plugins"
-            scp k4refresh-cli libk4refresh.so root@192.168.15.244:/mnt/us/k4refresh/
+            scp k4refresh-cli                 root@192.168.15.244:/mnt/us/k4refresh/
             scp k4refresh-cli                 root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
             scp kual/config.xml               root@192.168.15.244:/mnt/us/extensions/k4refresh/
             scp kual/bin/k4r.sh               root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
@@ -104,15 +88,21 @@ jobs:
           cat > release_notes.md <<EOF
           ## k4refresh ${GITHUB_REF_NAME}
 
-          Kindle 4（legacy einkfb）刷屏策略控制器。zip 内容：静态 CLI、动态 CLI、
-          libk4refresh.so、KOReader Lua 桥、KOReader 插件（重影优先模式：每 N 页
-          自动 slow 收尾清残影）、KUAL 扩展、INSTALL.txt、SHA256SUMS.txt。
+          Kindle 4（legacy einkfb）刷屏策略控制器。zip 内容：静态 CLI、
+          KOReader Lua 桥、KOReader 插件（重影优先模式：每 N 页自动 slow 收尾
+          清残影）、KUAL 扩展、INSTALL.txt、SHA256SUMS.txt。
 
           ### v${GITHUB_REF_NAME} 亮点
-          - k4refresh.koplugin：翻页保持原生 partial，每 N 页（4/6/8，菜单可调）
-            自动 slow 全刷清残影；章节/跳页立即收尾；FFI 不可用自动回退静态 CLI。
+          - 方案 A（FFI 停用）：K4 用户态 armel（glibc 2.12.1），gnueabihf 的
+            libk4refresh.so 无法 dlopen（已知边界）。zip 不再分发 .so 与动态 CLI；
+            插件/Lua 桥默认直接走静态 CLI，不再每次启动空转 FFI 探测。
+            armel .so 重建（koxtoolchain）落地后：touch /mnt/us/k4refresh/ffi.enabled
+            即恢复 FFI 探测，无需改代码。
+          - _meta.lua 去掉已弃用的 name 字段（消除 PluginLoader 告警）。
+          - ghost 接管还原行为修正：关闭 ghost 时还原接管前的内置全刷档位
+            （v0.1.7 硬编码 6，会覆盖用户自定义档），且 0 不再落盘。
           - KUAL 菜单：Ghost Off / Every 4 / Every 6 / Every 8 多档。
-          - bench 增加 bpp=8 防御校验。
+          - bench：--shot-idx 为 0-based（第 N+1 次刷新显示横幅），文档已注明。
 
           ### 安装
           解压后按包内 \`INSTALL.txt\` 逐条执行（前置：越狱 + KUAL + KOReader）。
@@ -130,8 +120,8 @@ jobs:
           rm -f /mnt/us/koreader/k4refresh.lua
           \`\`\`
 
-          ⚠️ 插件属 v0.1.4 新特性，残影改善的感知验收仍在进行中；部署后先按上方
-          冒烟命令验证基础链路，异常即卸载。详见 README 已知边界。
+          ⚠️ 残影改善的感知验收结论：ghost 6 下可接受（v0.1.7 实测）。部署后先按
+          上方冒烟命令验证基础链路，异常即卸载。详见 README 已知边界。
           EOF
           gh release create "$GITHUB_REF_NAME" "${ST}.zip" "${ST}.zip.sha256" \
             --title "k4refresh ${GITHUB_REF_NAME}" --notes-file release_notes.md

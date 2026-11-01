@@ -16,7 +16,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.1
-          targets: armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf
+          targets: armv7-unknown-linux-musleabihf
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -27,43 +27,23 @@ jobs:
             target
           key: k4refresh-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
-      - name: Cache ARM cross toolchain
-        id: tc-cache
-        uses: actions/cache@v4
-        with:
-          path: /opt/tc
-          key: bootlin-armv7-eabihf-glibc-2024.05-1
-
-      - name: Download ARM glibc cross toolchain (for .so dynamic linking)
-        if: steps.tc-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSLo /tmp/tc.tar.xz https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--glibc--stable-2024.05-1.tar.xz
-          mkdir -p /opt/tc && tar xJf /tmp/tc.tar.xz -C /opt/tc --strip-components=1
-
       - name: Run unit tests (host)
         run: cargo test
 
-      - name: Build ARM dynamic artifacts (.so + cli, K4 armhf)
-        run: cargo build --release --target armv7-unknown-linux-gnueabihf
-        env:
-          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: /opt/tc/bin/arm-buildroot-linux-gnueabihf-gcc
-
+      # 方案 A（v0.1.8）：gnueabihf 动态产物（libk4refresh.so / 动态 CLI）停产——
+      # K4 用户态是 armel（ld-linux.so.3 + glibc 2.12.1），armhf 动态件无法
+      # 加载/运行（readme §7 已知边界）。FFI 待方案 B 用 koxtoolchain armel 重建。
       - name: Build ARM static CLI (musl, zero-dependency)
         run: cargo build --release --target armv7-unknown-linux-musleabihf
         # .cargo/config.toml 已配置 rust-lld 自包含链接
 
       - name: Verify artifact architecture
-        run: |
-          file target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so
-          file target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli
-          file target/armv7-unknown-linux-musleabihf/release/k4refresh-cli
+        run: file target/armv7-unknown-linux-musleabihf/release/k4refresh-cli
 
       - name: Package
         run: |
           mkdir -p stage/lua stage/kual/bin
           cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli stage/k4refresh-cli
-          cp target/armv7-unknown-linux-gnueabihf/release/k4refresh-cli stage/k4refresh-cli-dynamic
-          cp target/armv7-unknown-linux-gnueabihf/release/libk4refresh.so stage/
           cp lua/k4refresh.lua stage/lua/
           cp -r koplugin/k4refresh.koplugin stage/
           cp kual/config.xml stage/kual/

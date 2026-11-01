@@ -1,12 +1,11 @@
-# ARMv7 musl 静态交叉编译配置（仅 CLI 静态备选用）。
+# ARMv7 musl 静态交叉编译配置（静态 CLI，唯一分发产物）。
 # 注意：
-# - libk4refresh.so 走 armv7-unknown-linux-gnueabihf 动态 target，
-#   其 linker 由环境变量 CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER
-#   指定（CI 见 .github/workflows/build.yml；本地见 README §5.1）。
-#   此处故意不放 gnueabihf 段——早期的 +crt-static 会导致 glibc cdylib 被丢弃。
+# - v0.1.8 方案 A 起 gnueabihf 动态产物（libk4refresh.so / 动态 CLI）停产：
+#   K4 用户态是 armel（/lib/ld-linux.so.3 + glibc 2.12.1），armhf 动态件
+#   无法加载/运行（readme §7 已知边界）。FFI 待方案 B 用 koxtoolchain
+#   armel 重建 .so 后恢复；crate-type 保留 cdylib 仅为届时复用。
 # - musl target 默认 dynamic_linking=false：静态 CLI 可构建，cdylib 会被
-#   rustc 提示 dropping（无害，CI 只取其中的 CLI 产物）。
-# 若你的 rustc 版本较老导致此配置报错，见方案文档 §5.1 的回退方案。
+#   rustc 提示 dropping（无害）。
 [target.armv7-unknown-linux-musleabihf]
 linker = "rust-lld"
 rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]

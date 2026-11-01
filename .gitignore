@@ -18,3 +18,9 @@ k4r-device/
 
 # 本地发布包暂存
 .deploy/
+
+# orbital_handoff: 交接文档只在本机流转，永不 commit/push/上传
+handoffs/
+
+# orbital_handoff: AGENTS.md 指针与交接文档同属本地流转，不入库
+AGENTS.md
