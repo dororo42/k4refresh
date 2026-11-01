@@ -32,6 +32,9 @@ local MODE_CONF_CANDIDATES = {
 -- 2.12.1，而 armhf/glibc≥2.18 基线的 libk4refresh.so 无法 dlopen——回退路径
 -- 是当前设备上唯一可用的 KOReader 内入口（插件同款逻辑）。
 local CLI = "/mnt/us/k4refresh/k4refresh-cli"
+-- 方案 A（v0.1.8）：FFI 默认停用（K4 armel 边界，readme §7）；方案 B 重建
+-- armel .so 后 touch /mnt/us/k4refresh/ffi.enabled 即恢复探测，无需改代码。
+local FFI_ENABLE = "/mnt/us/k4refresh/ffi.enabled"
 
 local K4R = {
     loaded = false,
@@ -54,8 +57,12 @@ function K4R.init()
     K4R.loaded = true
 
     local lib = nil
+    local mf = io.open(FFI_ENABLE, "r")
+    if mf then mf:close() end
     local ffi_ok, ffi = pcall(require, "ffi")
-    if ffi_ok then
+    if not mf then
+        logger.info("K4Refresh: FFI 停用（方案 A: K4 armel 边界），走静态 CLI")
+    elseif ffi_ok then
         -- C ABI 与 src/lib.rs 的 #[no_mangle] 导出一一对应
         ffi.cdef[[
             int  k4refresh_open(const char *path);

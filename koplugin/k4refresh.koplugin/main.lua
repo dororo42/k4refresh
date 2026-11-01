@@ -1,4 +1,4 @@
--- k4refresh.koplugin — Kindle 4 重影优先模式（v0.1.4 / 技术方案 O-1 v2）
+-- k4refresh.koplugin — Kindle 4 重影优先模式（v0.1.8 / 技术方案 O-1 v2）
 --
 -- 职责：接管"翻页清残影"的调度，不接管翻页本身——
 --   翻页仍走 KOReader 原生 partial（真机 2026-09-08 实测：真实翻页下
@@ -8,8 +8,10 @@
 --   - 大步长跳转（章节/跳页，|Δpage|>1）→ 立即 slow 全刷；
 --   - interval 经 /mnt/us/k4refresh/mode.conf 与 KUAL/CLI 互通。
 --
--- 兜底：FFI 不可用 / libk4refresh.so 加载失败 / open 失败时，自动改用
--- 静态 CLI（os.execute），保证收尾动作永远可达。
+-- 兜底（v0.1.8 方案 A）：K4 用户态 armel/glibc 2.12.1，gnueabihf 的
+-- libk4refresh.so 必然 dlopen 失败（已知边界，readme §7），插件默认直接走
+-- 静态 CLI（os.execute），收尾动作永远可达；仅当 /mnt/us/k4refresh/ffi.enabled
+-- 标记存在（方案 B armel .so 落地后）才恢复 FFI 探测。
 --
 -- 安装：/mnt/us/koreader/plugins/k4refresh.koplugin/{_meta.lua, main.lua}
 --   （libk4refresh.so 与 k4refresh-cli 仍在 /mnt/us/k4refresh/，部署同 README §3）
@@ -19,6 +21,9 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 
 local MODE_CONF = "/mnt/us/k4refresh/mode.conf"
 local CLI_FLASH = "/mnt/us/k4refresh/k4refresh-cli flash >/dev/null 2>&1"
+-- FFI 探测总开关：K4 上默认停用（armel 设备无可加载的 .so）；方案 B 重建
+-- armel .so 后 touch 该标记文件即恢复 FFI 路径，无需改代码。
+local FFI_ENABLE = "/mnt/us/k4refresh/ffi.enabled"
 
 local K4R = WidgetContainer:extend{
     name = "k4refresh",
@@ -31,6 +36,7 @@ function K4R:init()
     self.last_pageno = nil
     self.lib = nil
     self.fd = -1
+    self.builtin_rate = nil  -- ghost 接管前的 KOReader 内置全刷档（还原用）
     self.via_cli = true      -- loadLib 成功则翻转为 false
     self:loadLib()
     self:loadConf()
@@ -41,8 +47,15 @@ function K4R:init()
         tostring(self.interval or "off"), self.via_cli and "cli" or "ffi"))
 end
 
--- FFI 装载：绝对路径优先（KOReader 运行目录不保证），失败退回 CLI 路径
+-- FFI 装载（v0.1.8 方案 A）：默认停用（K4 armel 无可加载 .so，readme §7），
+-- 仅 ffi.enabled 标记存在时才探测；探测失败仍回退静态 CLI。
 function K4R:loadLib()
+    local mf = io.open(FFI_ENABLE, "r")
+    if not mf then
+        logger.info("K4Refresh: FFI 停用（方案 A: K4 armel 边界），走静态 CLI")
+        return
+    end
+    mf:close()
     local ffi_ok, ffi = pcall(require, "ffi")
     if not ffi_ok then
         logger.warn("K4Refresh: LuaJIT FFI 不可用，回退静态 CLI")
@@ -138,7 +151,8 @@ end
 
 -- 收尾策略接管：ghost 模式激活时关闭 KOReader 内置的每 N 页 promotion 全刷
 -- （UIManager 默认 FULL_REFRESH_COUNT=6，会与插件收尾叠加成双黑闪）；
--- ghost 关闭时恢复默认 6。setRefreshRate 会持久化 full_refresh_count。
+-- ghost 关闭时还原接管前档位（v0.1.7 硬编码 6，会覆盖用户自定义档；
+-- v0.1.8 起首次接管捕获原值，持久化值即时回写，避免 0 落盘）。
 function K4R:takeover_builtin_refresh()
     pcall(function()
         local UIManager = require("ui/uimanager")
@@ -147,11 +161,31 @@ function K4R:takeover_builtin_refresh()
             return
         end
         if self.interval then
+            if self.builtin_rate == nil then
+                -- 只在首次接管时捕获（setRefreshRate(0) 会持久化 0，重复捕获会把
+                -- 0 当成"原值"）；捕获到 0 视为 0.1.7 接管残留，按默认 6 还原。
+                self.builtin_rate = UIManager.full_refresh_count
+                    or (G_reader_settings and G_reader_settings:readSetting("full_refresh_count"))
+                    or 6
+                if self.builtin_rate == 0 then
+                    logger.warn("K4Refresh: 捕获到内置全刷档 0（疑为 v0.1.7 接管残留），还原时按 6")
+                    self.builtin_rate = 6
+                end
+            end
             UIManager:setRefreshRate(0)
+            -- setRefreshRate 会把 0 持久化进设置；立即把持久化值写回接管前档，
+            -- 运行态（UIManager 缓存字段）保持 0，重启后不会把 0 当用户设置。
+            if G_reader_settings then
+                pcall(G_reader_settings.saveSetting, G_reader_settings,
+                    "full_refresh_count", self.builtin_rate)
+            end
             logger.info("K4Refresh: KOReader builtin full-refresh disabled (plugin owns policy)")
         else
-            UIManager:setRefreshRate(6)
-            logger.info("K4Refresh: ghost off -> KOReader builtin full-refresh restored to 6")
+            local restored = self.builtin_rate or 6
+            UIManager:setRefreshRate(restored)
+            self.builtin_rate = nil
+            logger.info(string.format(
+                "K4Refresh: ghost off -> KOReader builtin full-refresh restored to %d", restored))
         end
     end)
 end
