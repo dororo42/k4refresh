@@ -28,7 +28,7 @@ fn usage() -> ! {
          \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--label A]\n\
          \x20                 [--delay-ms 3000] [--out latency.csv] [--sync]\n\
          \x20                 [--seq fast,fast,fast,slow] [--pattern checker|gray] [--quant]\n\
-         \x20                 [--shot-idx 1]（该帧显示「标记+请拍摄」横幅，供相机记录）\n\
+         \x20                 [--shot-idx N]（0-based：第 N+1 次刷新显示「标记+请拍摄」横幅，供相机记录）\n\
          \n\
          fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）\n\
          fxupdate --which: -1=无变换 21=反色（fx_t Shim 变换）",

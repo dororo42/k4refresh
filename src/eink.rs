@@ -153,6 +153,8 @@ pub struct FixScreenInfo {
     pub xpanstep: u16,
     pub ypanstep: u16,
     pub ywrapstep: u16,
+    /// fb.h 的显式对齐占位（此前靠 repr(C) 隐式填充恰好等价，显式化防误读）。
+    pub pad: u16,
     pub line_length: u32,
     pub _tail: [u8; 256],
 }
@@ -169,6 +171,7 @@ impl FixScreenInfo {
             xpanstep: 0,
             ypanstep: 0,
             ywrapstep: 0,
+            pad: 0,
             line_length: 0,
             _tail: [0u8; 256],
         }

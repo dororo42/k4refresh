@@ -377,7 +377,7 @@ pub fn run(
         for i in 0..n {
             counter += 1;
             let mark = format!("{}{}", label, counter);
-            let shot = i as usize == shot_idx;
+            let shot = i as usize == shot_idx; // --shot-idx 为 0-based 帧序号（0 = 第一次刷新）
             let (usec, sync_usec, err) =
                 time_update(fd, fb, v, f, fxv, i, &mark, pattern, quant, sync, shot);
             match err {
@@ -437,7 +437,7 @@ pub fn run_seq(
             } else {
                 mark
             };
-            let shot = step == shot_idx;
+            let shot = step == shot_idx; // --shot-idx 为 0-based（对 seq 的 step 下标）
             let (usec, sync_usec, err) =
                 time_update(fd, fb, v, f, fxv, frame, &mark, pattern, quant, sync, shot);
             match err {
