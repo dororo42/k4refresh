@@ -1,5 +1,9 @@
 {
     "items": [
+    {
+        "name": "K4Refresh",
+        "priority": 0,
+        "items": [
         {"name": "Full Refresh (slow)",     "priority": 1, "action": "bin/k4r.sh", "params": "flash"},
         {"name": "Ghost: Off",              "priority": 2, "action": "bin/k4r.sh", "params": "ghostoff"},
         {"name": "Ghost: Every 4 Pages",    "priority": 3, "action": "bin/k4r.sh", "params": "ghost4"},
@@ -7,5 +11,7 @@
         {"name": "Ghost: Every 8 Pages",    "priority": 5, "action": "bin/k4r.sh", "params": "ghost8"},
         {"name": "Screen Info",             "priority": 6, "action": "bin/k4r.sh", "params": "info"},
         {"name": "Benchmark (CSV)",         "priority": 7, "action": "bin/k4r.sh", "params": "bench"}
+        ]
+    }
     ]
 }
