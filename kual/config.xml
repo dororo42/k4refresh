@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- KUAL 扩展注册（Kindle 4 / KUAL 2.x 兼容的最小写法）。
-     安装到 /mnt/us/extensions/k4refresh/config.xml -->
+<!-- KUAL 扩展注册（KUAL 2.7 的 parse.awk 只扫描带 type="json" 的 menu 标签）。
+     安装到 /mnt/us/extensions/k4refresh/ ：config.xml + menu.json -->
 <extension>
     <information>
         <name>K4Refresh</name>
@@ -8,55 +8,5 @@
         <author>k4refresh project</author>
         <summary>E-Ink ghost clearing scheduler (legacy einkfb fx types)</summary>
     </information>
-    <menu>
-        <item name="flash" priority="1">
-            <text>Full Refresh (slow)</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>flash</arg>
-            </action>
-        </item>
-        <item name="ghostoff" priority="2">
-            <text>Ghost: Off</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>ghostoff</arg>
-            </action>
-        </item>
-        <item name="ghost4" priority="3">
-            <text>Ghost: Every 4 Pages</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>ghost4</arg>
-            </action>
-        </item>
-        <item name="ghost6" priority="4">
-            <text>Ghost: Every 6 Pages</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>ghost6</arg>
-            </action>
-        </item>
-        <item name="ghost8" priority="5">
-            <text>Ghost: Every 8 Pages</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>ghost8</arg>
-            </action>
-        </item>
-        <item name="info" priority="6">
-            <text>Screen Info</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>info</arg>
-            </action>
-        </item>
-        <item name="bench" priority="7">
-            <text>Benchmark (CSV)</text>
-            <action>
-                <script>bin/k4r.sh</script>
-                <arg>bench</arg>
-            </action>
-        </item>
-    </menu>
+    <menu type="json">menu.json</menu>
 </extension>

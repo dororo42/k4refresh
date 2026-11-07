@@ -45,6 +45,7 @@ jobs:
           cp lua/k4refresh.lua "$ST/lua/"
           cp -r koplugin/k4refresh.koplugin "$ST/"
           cp kual/config.xml "$ST/kual/"
+          cp kual/menu.json "$ST/kual/"
           cp kual/k4r.sh "$ST/kual/bin/"
           cp target/armv7-unknown-linux-musleabihf/release/k4refresh-cli "$ST/kual/bin/k4refresh-cli"
           cat > "$ST/INSTALL.txt" <<'EOF'
@@ -55,6 +56,7 @@ jobs:
             scp k4refresh-cli                 root@192.168.15.244:/mnt/us/k4refresh/
             scp k4refresh-cli                 root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
             scp kual/config.xml               root@192.168.15.244:/mnt/us/extensions/k4refresh/
+            scp kual/menu.json                root@192.168.15.244:/mnt/us/extensions/k4refresh/
             scp kual/bin/k4r.sh               root@192.168.15.244:/mnt/us/extensions/k4refresh/bin/
             scp lua/k4refresh.lua             root@192.168.15.244:/mnt/us/koreader/
             scp -r k4refresh.koplugin         root@192.168.15.244:/mnt/us/koreader/plugins/

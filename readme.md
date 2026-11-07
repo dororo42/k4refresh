@@ -14,7 +14,8 @@ Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KORea
 k4refresh-cli            ← 静态 CLI（musl，首选，零依赖）
 k4refresh.koplugin/      ← KOReader 插件：重影优先模式（每 N 页自动 slow 收尾）
 lua/k4refresh.lua        ← KOReader 桥接脚本（控制台手动用）
-kual/config.xml          ← KUAL 菜单注册
+kual/config.xml          ← KUAL 菜单注册（type="json" 指向 menu.json）
+kual/menu.json           ← KUAL 菜单项（KUAL 2.7 json 格式）
 kual/bin/k4r.sh          ← KUAL 菜单脚本
 kual/bin/k4refresh-cli   ← KUAL 用的 CLI 副本
 INSTALL.txt              ← 部署命令速查（与本节 §3 相同）
@@ -47,6 +48,7 @@ ssh -P 2222 root@192.168.2.x "mkdir -p /mnt/us/k4refresh /mnt/us/extensions/k4re
 scp -P 2222 k4refresh-cli                 root@192.168.2.x:/mnt/us/k4refresh/
 scp -P 2222 k4refresh-cli                 root@192.168.2.x:/mnt/us/extensions/k4refresh/bin/
 scp -P 2222 kual/config.xml               root@192.168.2.x:/mnt/us/extensions/k4refresh/
+scp -P 2222 kual/menu.json                root@192.168.2.x:/mnt/us/extensions/k4refresh/
 scp -P 2222 kual/bin/k4r.sh               root@192.168.2.x:/mnt/us/extensions/k4refresh/bin/
 scp -P 2222 lua/k4refresh.lua             root@192.168.2.x:/mnt/us/koreader/   # 文件名小写
 scp -P 2222 -r k4refresh.koplugin         root@192.168.2.x:/mnt/us/koreader/plugins/

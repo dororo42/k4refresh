@@ -2,6 +2,7 @@
 # KUAL 菜单扩展：k4refresh（v0.1.4 重影优先模式）
 # 安装位置（Kindle USB 根目录）:
 #   /mnt/us/extensions/k4refresh/config.xml           ← KUAL 菜单注册
+#   /mnt/us/extensions/k4refresh/menu.json            ← KUAL 菜单项（json）
 #   /mnt/us/extensions/k4refresh/bin/k4r.sh           ← 本脚本
 #   /mnt/us/extensions/k4refresh/bin/k4refresh-cli    ← 从构建产物复制（静态版首选）
 #
