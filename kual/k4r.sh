@@ -26,7 +26,18 @@ msg() {
 # KOReader 插件在下次开书（onReaderReady）时读取生效。
 set_mode() {
   mkdir -p "$MODE_CONF_DIR" 2>/dev/null
-  printf '%s\n' "$1" > "$MODE_CONF" && sync
+  printf '%s\nquant %s\n' "$1" "$(get_quant)" > "$MODE_CONF" && sync
+}
+
+# 读 mode.conf 第 2 行的 quant 开关（无则 off）；写 quant 时保留第 1 行档位
+get_quant() {
+  sed -n '2p' "$MODE_CONF" 2>/dev/null | grep -q '^quant on' && echo on || echo off
+}
+set_quant() {
+  mkdir -p "$MODE_CONF_DIR" 2>/dev/null
+  line1=$(head -n1 "$MODE_CONF" 2>/dev/null)
+  [ -n "$line1" ] || line1="off"
+  printf '%s\nquant %s\n' "$line1" "$1" > "$MODE_CONF" && sync
 }
 
 case "$1" in
@@ -45,6 +56,15 @@ case "$1" in
   ghost8)
     set_mode "ghost 8" && msg "K4R: ghost every 8 pages" || msg "K4R: mode write FAILED"
     ;;
+  quanton)
+    set_quant on && msg "K4R: Duokan quant ON (next book open)" || msg "K4R: quant write FAILED"
+    ;;
+  quantoff)
+    set_quant off && msg "K4R: Duokan quant OFF" || msg "K4R: quant write FAILED"
+    ;;
+  quantnow)
+    "$BIN" fxquant --refresh partial && msg "K4R: quantized (partial)" || msg "K4R: quant FAILED"
+    ;;
   info)
     "$BIN" info | head -n 7 > /tmp/k4r_info.txt
     i=6; while IFS= read -r line; do i=$((i+1)); eips 0 $i "$line" >/dev/null 2>&1; done < /tmp/k4r_info.txt
@@ -54,7 +74,7 @@ case "$1" in
       && msg "K4R: bench done -> bench.csv" || msg "K4R: bench FAILED"
     ;;
   *)
-    msg "K4R: usage {flash|ghost4|ghost6|ghost8|ghostoff|info|bench}"
+    msg "K4R: usage {flash|quantnow|quanton|quantoff|ghost4|ghost6|ghost8|ghostoff|info|bench}"
     ;;
 esac
 exit 0

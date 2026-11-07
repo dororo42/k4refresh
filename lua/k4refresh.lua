@@ -68,6 +68,7 @@ function K4R.init()
             int  k4refresh_open(const char *path);
             int  k4refresh_refresh(int fd, unsigned int kind, int x1, int y1, int x2, int y2);
             int  k4refresh_flash(int fd);
+            int  k4refresh_quant_refresh(int fd, int fx);
             void k4refresh_set_mode(unsigned int mode, unsigned int interval);
             int  k4refresh_screen_size(int fd, int *w_out, int *h_out);
             int  k4refresh_last_error(char *buf, int len);
@@ -162,6 +163,18 @@ function K4R.flash()
         return true
     end
     return K4R.lib.k4refresh_flash(K4R.fd)
+end
+
+-- Duokan 对齐量化刷新（v0.1.10）：可见 fb 16 级量化（幂等）+ 可选整页刷新。
+-- fx: "none"|"partial"|"full"|"slow"，默认 partial。
+function K4R.quant(fx)
+    if not K4R.ok then return nil end
+    local fxcode = ({ none = -1, partial = 0, full = 1, slow = 3 })[fx or "partial"] or 0
+    if K4R.via_cli then
+        os.execute(CLI .. " fxquant --refresh " .. (fx or "partial") .. " >/dev/null 2>&1")
+        return true
+    end
+    return K4R.lib.k4refresh_quant_refresh(K4R.fd, fxcode) > 0
 end
 
 -- mode: 0=fast 1=conservative；interval: N 次翻页后 slow 收尾

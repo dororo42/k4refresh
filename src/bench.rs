@@ -14,7 +14,9 @@
 //! `--delay-ms N` 在相邻两次刷新之间暂停 N 毫秒，供真机肉眼逐次辨认标记
 //! （人眼跟随连发刷新不可行；最后一组刷新后不延时，立即恢复画面）。
 
-use k4refresh::eink::{update_area, wait_for_update, FixScreenInfo, UpdateArea, VarScreenInfo};
+use k4refresh::eink::{
+    map_fb, unmap_fb, update_area, wait_for_update, FixScreenInfo, UpdateArea, VarScreenInfo,
+};
 use k4refresh::fx::{FX_FAST, FX_PARTIAL, FX_SLOW};
 use std::io::{self, Write};
 use std::os::raw::c_int;
@@ -244,37 +246,6 @@ fn draw_pattern(
         draw_shot_banner(fb, v, f, label);
     } else {
         draw_label(fb, v, f, label);
-    }
-}
-
-/// mmap framebuffer（长度取驱动报告的 smem_len，越界写不可能超出该长度）。
-/// unsafe：仅 CLI 使用，生命周期由配对的 unmap_fb 封闭。
-fn map_fb(fd: c_int, f: &FixScreenInfo) -> io::Result<(*mut u8, usize)> {
-    let len = f.smem_len as usize;
-    if len == 0 {
-        return Err(io::Error::new(io::ErrorKind::Other, "smem_len == 0"));
-    }
-    let ptr = unsafe {
-        libc::mmap(
-            std::ptr::null_mut(),
-            len,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_SHARED,
-            fd,
-            0,
-        )
-    };
-    if ptr == libc::MAP_FAILED {
-        return Err(io::Error::last_os_error());
-    }
-    Ok((ptr as *mut u8, len))
-}
-
-fn unmap_fb(ptr: *mut u8, len: usize) -> io::Result<()> {
-    if unsafe { libc::munmap(ptr as *mut libc::c_void, len) } != 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
 }
 

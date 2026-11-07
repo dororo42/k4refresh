@@ -5,12 +5,15 @@
         "priority": 0,
         "items": [
         {"name": "Full Refresh (slow)",     "priority": 1, "action": "bin/k4r.sh", "params": "flash"},
-        {"name": "Ghost: Off",              "priority": 2, "action": "bin/k4r.sh", "params": "ghostoff"},
-        {"name": "Ghost: Every 4 Pages",    "priority": 3, "action": "bin/k4r.sh", "params": "ghost4"},
-        {"name": "Ghost: Every 6 Pages",    "priority": 4, "action": "bin/k4r.sh", "params": "ghost6"},
-        {"name": "Ghost: Every 8 Pages",    "priority": 5, "action": "bin/k4r.sh", "params": "ghost8"},
-        {"name": "Screen Info",             "priority": 6, "action": "bin/k4r.sh", "params": "info"},
-        {"name": "Benchmark (CSV)",         "priority": 7, "action": "bin/k4r.sh", "params": "bench"}
+        {"name": "Quantize now (16-level)", "priority": 2, "action": "bin/k4r.sh", "params": "quantnow"},
+        {"name": "Duokan Quant: On",        "priority": 3, "action": "bin/k4r.sh", "params": "quanton"},
+        {"name": "Duokan Quant: Off",       "priority": 4, "action": "bin/k4r.sh", "params": "quantoff"},
+        {"name": "Ghost: Off",              "priority": 5, "action": "bin/k4r.sh", "params": "ghostoff"},
+        {"name": "Ghost: Every 4 Pages",    "priority": 6, "action": "bin/k4r.sh", "params": "ghost4"},
+        {"name": "Ghost: Every 6 Pages",    "priority": 7, "action": "bin/k4r.sh", "params": "ghost6"},
+        {"name": "Ghost: Every 8 Pages",    "priority": 8, "action": "bin/k4r.sh", "params": "ghost8"},
+        {"name": "Screen Info",             "priority": 9, "action": "bin/k4r.sh", "params": "info"},
+        {"name": "Benchmark (CSV)",         "priority": 10, "action": "bin/k4r.sh", "params": "bench"}
         ]
     }
     ]

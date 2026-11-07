@@ -2,8 +2,9 @@
 
 Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KOReader 原生 partial，KOReader 插件按 ghost 档位每 N 页自动 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
 
+- 🆕 **v0.1.10（2026-11-07）**：**Duokan 对齐量化**——多看固件逆向（报告《Duokan-xKindle-K4固件逆向与借鉴优化报告-2026-11-07.md》）证实其在渲染层对每像素执行 `v&0xF0|v>>4`（16 级灰阶，幂等），把 partial 刷新的累积灰阶污染锁死在 16 级内。新增：CLI `fxquant` 子命令（量化可见 fb + 可选刷新）、KOReader 插件 "Duokan quant" 开关（接管 einkfb `refreshPartialImp/refreshFullImp`，blit 后 ioctl 前纯 LuaJIT FFI 就地量化，无需 .so）、KUAL 菜单 3 项（Quantize now / Duokan Quant On/Off）、mode.conf 第 2 行 `quant on|off`、FFI 对等导出 `k4refresh_quant_refresh`。
 - 🆕 **v0.1.9（2026-11-07）**：KUAL 菜单改为嵌套子菜单（主菜单只显示 "K4Refresh ▸"，7 项收进二级，与 KOReader 扩展同构）；修复旧式 config.xml 菜单在 KUAL 2.7 下不显示的问题（parse.awk 只认 `<menu type="json">`）。CLI 二进制与 v0.1.8 相同，无功能变化。
-- ⚠️ **状态：v0.1.9，真机在用版本（v0.1.8 起真机验证）**——残影感知验收结论：ghost 6 下可接受。部署前请阅读技术方案文档（本地工作文件，不入库）的测试表与风险清单，`info` 冒烟失败立即停用。
+- ⚠️ **状态：v0.1.10，Duokan 量化待真机 A/B 验收**（bench `--pattern gray --quant` 对比照片；v0.1.8/0.1.9 的 ghost 收尾链路已在真机验证，残影感知验收结论：ghost 6 下可接受）。部署前请阅读技术方案文档（本地工作文件，不入库）的测试表与风险清单，`info` 冒烟失败立即停用。
 - 📦 下载：[Releases](https://github.com/dororo42/k4refresh/releases) 页 zip 包（含静态 CLI / Lua 桥 / KOReader 插件 / KUAL 扩展 / SHA256SUMS；v0.1.8 起不再分发 .so 与动态 CLI）；或 Actions → build → artifacts。
 - 🤖 CI：push 自动构建 ARM 产物；打 `v*` tag 自动发布 Release。
 
@@ -67,9 +68,11 @@ ssh -P 2222 root@192.168.2.x "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4
 | 菜单项 | 动作 |
 |---|---|
 | Full Refresh (slow) | 立即整屏 slow 全刷，清残影 |
+| Quantize now (16-level, no flash) | 手动一次性：可见 fb 量化 + partial 呈现（CLI 执行，与开关无关） |
+| Duokan quant: On / Off | v0.1.10：自动量化开关。On 时接管 einkfb `refreshPartialImp/refreshFullImp`，每次刷新前对可见 fb 就地 16 级量化（纯 LuaJIT FFI 直写 KOReader 已 mmap 的 fb，无需 .so）；Off 即还原原函数 |
 | Ghost clearing: Off / Every 4 / 6 / 8 pages | 设定每 N 页自动 slow 收尾（即时生效，并写入 mode.conf 与 KUAL/CLI 共享） |
 
-行为：翻页保持原生 partial 不变；每 N 次翻页自动触发一次 slow 全刷（闪烁一次、残影清零）；章节/跳页等大步长跳转（|Δ页|>1）立即收尾。v0.1.8 方案 A 起 FFI 默认停用（K4 armel 无可加载 .so），插件直接走静态 CLI，收尾动作不中断。
+行为：翻页保持原生 partial 不变；每 N 次翻页自动触发一次 slow 全刷（闪烁一次、残影清零）；章节/跳页等大步长跳转（|Δ页|>1）立即收尾。v0.1.8 方案 A 起 FFI 默认停用（K4 armel 无可加载 .so），插件直接走静态 CLI，收尾动作不中断。量化钩子与该 FFI 停用无关（量化用 KOReader 自身 LuaJIT + 已映射内存，不开 .so）。
 
 **收尾策略接管（v0.1.7+，v0.1.8 修正还原行为）**：ghost 模式激活时，插件自动把 KOReader 内置的"每 6 次 partial 升级全刷"（UIManager `full_refresh_count`）设为 0，避免与插件收尾叠加成双重黑闪；Ghost: Off 时还原**接管前的档位**（v0.1.7 曾硬编码 6，会覆盖用户自定义档；v0.1.8 起捕获原值，且 0 不落盘，重启后也不会把 0 当用户设置）。背景：实测连续 partial 全屏反转的残影单调累积（第 1→4 次反转 RMS 约 10%→15%），周期性 slow 收尾是必要设计。
 
@@ -80,6 +83,8 @@ KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜
 | 菜单项 | 动作 |
 |---|---|
 | Full Refresh (slow) | 立即整屏 slow 全刷，清残影 |
+| Quantize now (16-level) | CLI `fxquant --refresh partial`：量化当前屏并呈现 |
+| Duokan Quant: On / Off | mode.conf 第 2 行写 `quant on/off`，下次开书生效 |
 | Ghost: Off | mode.conf 写 `off`：关闭自动收尾 |
 | Ghost: Every 4 / 6 / 8 Pages | mode.conf 写 `ghost N`：每 N 页收尾 |
 | Screen Info | 屏显分辨率/位深（600x800, bpp=8 为正常） |
@@ -91,6 +96,8 @@ KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜
 /mnt/us/k4refresh/k4refresh-cli --version                  # 打印版本
 /mnt/us/k4refresh/k4refresh-cli info                       # 冒烟第 1 条：600x800, bpp=8
 /mnt/us/k4refresh/k4refresh-cli flash                      # 强制 slow 全刷
+/mnt/us/k4refresh/k4refresh-cli fxquant --refresh partial  # v0.1.10+：可见 fb 16 级量化（幂等）+ partial 呈现
+/mnt/us/k4refresh/k4refresh-cli fxquant --refresh none     # 只量化不刷新（等下次刷新呈现）
 /mnt/us/k4refresh/k4refresh-cli restore --mode 1           # v0.1.7+：RESTORE_DISPLAY 整帧重推（花屏修复/确定性清残影）
 /mnt/us/k4refresh/k4refresh-cli fxupdate --mode 1 --which -1            # v0.1.7+：整屏刷新（fx_t 通道）
 /mnt/us/k4refresh/k4refresh-cli fxupdate --mode 0 --which 21 --exclude 0,750,600,800
@@ -125,6 +132,7 @@ KOReader 菜单 → 更多工具 → Lua 调试台：
 local K4R = require("k4refresh")   -- 文件名小写
 K4R.init()                          -- 幂等；自动读取 KUAL 写入的 mode.conf
 K4R.flash()                         -- 立即全刷
+K4R.quant("partial")                -- v0.1.10+：量化+刷新（"none"/"full"/"slow" 可选）
 K4R.set_mode(0, 6)                  -- fast 模式，6 页一收尾
 K4R.set_mode(1)                     -- 回 conservative
 ```

@@ -280,3 +280,36 @@ pub fn fix_info(fd: c_int) -> io::Result<FixScreenInfo> {
         Ok(f)
     }
 }
+
+/// mmap framebuffer（长度取驱动报告的 smem_len，越界写不可能超出该长度）。
+/// unsafe：仅 CLI 路径使用（bench 逐帧写图案 / fxquant 量化），生命周期由
+/// 配对的 unmap_fb 封闭。
+pub fn map_fb(fd: c_int, f: &FixScreenInfo) -> io::Result<(*mut u8, usize)> {
+    let len = f.smem_len as usize;
+    if len == 0 {
+        return Err(io::Error::new(io::ErrorKind::Other, "smem_len == 0"));
+    }
+    let ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED,
+            fd,
+            0,
+        )
+    };
+    if ptr == libc::MAP_FAILED {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((ptr as *mut u8, len))
+}
+
+/// 解除 map_fb 的映射。
+pub fn unmap_fb(ptr: *mut u8, len: usize) -> io::Result<()> {
+    if unsafe { libc::munmap(ptr as *mut libc::c_void, len) } != 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}

@@ -25,6 +25,8 @@ fn usage() -> ! {
          \x20 k4refresh-cli fxupdate --mode 0|1 --which -1|21 [--exclude X1,Y1,X2,Y2]\n\
          \x20                 [--exclude2 X1,Y1,X2,Y2] [--cmd new|old|auto]\n\
          \x20                 UPDATE_DISPLAY_FX：整屏 + 逐像素 fx + 排除矩形\n\
+         \x20 k4refresh-cli fxquant [--refresh none|partial|full|slow]\n\
+         \x20                 可见 fb 16 级量化（Duokan 对齐，幂等）+ 可选整页刷新\n\
          \x20 k4refresh-cli bench [--fx partial,fast,slow] [--n 20] [--label A]\n\
          \x20                 [--delay-ms 3000] [--out latency.csv] [--sync]\n\
          \x20                 [--seq fast,fast,fast,slow] [--pattern checker|gray] [--quant]\n\
@@ -222,6 +224,45 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("错误: fxupdate 失败（新旧编号均试）: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "fxquant" => {
+            // Duokan 对齐（2026-11-07 逆向）：可见 fb 16 级量化（幂等）+ 可选刷新。
+            // 多看在渲染层对每像素执行 v&0xF0|v>>4，输出域收敛 17n，partial 刷新
+            // 的累积灰阶污染被锁死在 16 级内。
+            let mode = a.flag("--refresh").unwrap_or_else(|| "partial".into());
+            let fxv = match mode.as_str() {
+                "none" => None,
+                "full" => Some(k4refresh::fx::FX_FULL),
+                "slow" => Some(k4refresh::fx::FX_SLOW),
+                _ => Some(k4refresh::fx::FX_PARTIAL),
+            };
+            let (fd, v) = open_fb_or_die();
+            if v.bits_per_pixel != 8 {
+                k4refresh::eink::close_fd(fd);
+                eprintln!(
+                    "错误: bpp={} ≠ 8，量化仅适配 8bpp（K4），拒绝执行",
+                    v.bits_per_pixel
+                );
+                return ExitCode::FAILURE;
+            }
+            match k4refresh::quant_refresh(fd, fxv) {
+                Ok(n) => {
+                    println!(
+                        "ok: 量化 {n} 字节（16 级，v&0xF0|v>>4）{}",
+                        match fxv {
+                            None => "；未刷新（等下次刷新呈现）".to_string(),
+                            Some(f) => format!("；已按 fx={f} 整页刷新"),
+                        }
+                    );
+                    k4refresh::eink::close_fd(fd);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("错误: fxquant 失败: {e}");
+                    k4refresh::eink::close_fd(fd);
                     ExitCode::FAILURE
                 }
             }

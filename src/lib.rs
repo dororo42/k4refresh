@@ -12,6 +12,7 @@
 
 pub mod eink;
 pub mod fx;
+pub mod quant;
 
 use fx::Policy;
 use std::ffi::CStr;
@@ -84,6 +85,35 @@ pub fn flash_full(fd: c_int) -> Result<i32, io::Error> {
     refresh(fd, fx::KIND_FULL, 0, 0, w, h)
 }
 
+/// Duokan 对齐量化刷新：对可见 fb 做 16 级灰阶量化（幂等），随后可选整页刷新。
+/// fx：None=只量化（等下次 KOReader 刷新呈现）；Some(fxv)=量化后立即按该 fx
+/// 刷新整页（0x46dd 区域路径；FX_FULL 升级 0x46db 整屏）。返回量化字节数。
+pub fn quant_refresh(fd: c_int, fx: Option<i32>) -> Result<usize, io::Error> {
+    let v = eink::var_info(fd)?;
+    if v.bits_per_pixel != 8 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("bpp={} ≠ 8，量化仅适配 8bpp（K4）", v.bits_per_pixel),
+        ));
+    }
+    let f = eink::fix_info(fd)?;
+    let (ptr, len) = eink::map_fb(fd, &f)?;
+    let n = unsafe {
+        quant::quantize_visible_fb(ptr, f.line_length, v.xres as u32, v.yres as u32)
+    };
+    eink::unmap_fb(ptr, len)?;
+    if let Some(fxv) = fx {
+        let (w, h) = screen_size(fd)?;
+        if fxv == fx::FX_FULL {
+            eink::update_display(fd, fxv)?;
+        } else {
+            let area = eink::UpdateArea::new(0, 0, w, h, fxv);
+            eink::update_area(fd, &area)?;
+        }
+    }
+    Ok(n)
+}
+
 /// Rust 侧设置运行模式（CLI 使用；与 C ABI `k4refresh_set_mode` 等价）。
 pub fn set_mode(mode: u32, interval: u32) {
     MODE.store(mode, Ordering::Relaxed);
@@ -151,6 +181,22 @@ pub unsafe extern "C" fn k4refresh_refresh(
 pub unsafe extern "C" fn k4refresh_flash(fd: c_int) -> c_int {
     catch(|| match flash_full(fd) {
         Ok(fxv) => fxv,
+        Err(e) => {
+            record(&e);
+            K4R_ERR_IOCTL
+        }
+    })
+}
+
+/// Duokan 对齐量化刷新（方案 B FFI 对等入口；K4 上 .so 不可加载，实际走 CLI）。
+/// fx：-1=只量化不刷新；0=partial；1=full；3=slow。返回量化字节数（>0）或负错误码。
+///
+/// # Safety
+/// 同 k4refresh_refresh。
+#[no_mangle]
+pub unsafe extern "C" fn k4refresh_quant_refresh(fd: c_int, fx: c_int) -> c_int {
+    catch(|| match quant_refresh(fd, if fx < 0 { None } else { Some(fx) }) {
+        Ok(n) => n.min(c_int::MAX as usize) as c_int,
         Err(e) => {
             record(&e);
             K4R_ERR_IOCTL
