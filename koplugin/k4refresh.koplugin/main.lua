@@ -235,6 +235,9 @@ end
 -- 量化钩子：接管 KOReader einkfb 后端的两个 Imp（blit 后、ioctl 前的唯一切面；
 -- base 类的 refreshUI/Flash*/A2 等全部回落到这两个 Imp，包两处即全覆盖）。
 -- 幂等：首次接管捕获原函数存 self._orig_*；重复调用只按当前开关切换指向。
+-- 注意：KOReader 插件是"类 extend + 实例化"模式——self 是实例，包装器闭包
+-- 必须用 upvalue 捕获实例与原函数（v0.1.10 首版在闭包里引用 K4R 类表字段
+-- 导致 _orig_* 恒为 nil，首次重绘即崩，真机 crash.log 2026-11-07 实证）。
 function K4R:applyQuantHook()
     pcall(function()
         local Device = require("device")
@@ -248,21 +251,31 @@ function K4R:applyQuantHook()
             self._orig_rf = screen.refreshFullImp
             self._quant_installed = true
         end
-        if self.quant and self._orig_rp then
-            screen.refreshPartialImp = function(s, x, y, w, h, d)
-                K4R:quantizeScreen()
-                return K4R._orig_rp(s, x, y, w, h, d)
-            end
-            screen.refreshFullImp = function(s, x, y, w, h, d)
-                K4R:quantizeScreen()
-                return K4R._orig_rf(s, x, y, w, h, d)
-            end
-            logger.info("K4Refresh: Duokan quant hook installed (16-level, idempotent)")
-        elseif self._orig_rp then
-            screen.refreshPartialImp = self._orig_rp
-            screen.refreshFullImp = self._orig_rf
+        -- 卸载路径：只还原当初真正包装过的 Imp（捕获为 nil 的不还原覆盖）
+        if not self.quant then
+            if self._orig_rp then screen.refreshPartialImp = self._orig_rp end
+            if self._orig_rf then screen.refreshFullImp = self._orig_rf end
             logger.info("K4Refresh: Duokan quant hook removed")
+            return
         end
+        -- 安装路径：upvalue 捕获实例与原函数；某 Imp 捕获为 nil（机型差异防御）
+        -- 就不包它，回落类链原行为。
+        local plugin, orig_rp, orig_rf = self, self._orig_rp, self._orig_rf
+        if orig_rp then
+            screen.refreshPartialImp = function(s, x, y, w, h, d)
+                pcall(plugin.quantizeScreen, plugin)
+                return orig_rp(s, x, y, w, h, d)
+            end
+        end
+        if orig_rf then
+            screen.refreshFullImp = function(s, x, y, w, h, d)
+                pcall(plugin.quantizeScreen, plugin)
+                return orig_rf(s, x, y, w, h, d)
+            end
+        end
+        logger.info(string.format(
+            "K4Refresh: Duokan quant hook installed (16-level, idempotent; rp=%s rf=%s)",
+            orig_rp and "ok" or "skip", orig_rf and "ok" or "skip"))
     end)
 end
 
