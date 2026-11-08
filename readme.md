@@ -1,6 +1,6 @@
 # k4refresh — Kindle 4 E-Ink 刷新策略控制器
 
-English | [简体中文](readme.md)
+[English](README.en.md) | 简体中文
 
 Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KOReader 原生 partial，KOReader 插件按 ghost 档位每 N 页自动 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
 
