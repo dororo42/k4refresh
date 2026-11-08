@@ -68,8 +68,13 @@ jobs:
             /mnt/us/k4refresh/k4refresh-cli info     # 预期 600x800, bpp=8
             /mnt/us/k4refresh/k4refresh-cli flash    # 预期屏幕闪烁一次
 
-          使用：KUAL → K4Refresh（ghost 档位，开书后生效）；
-          KOReader 主菜单 → K4Refresh (ghost clearing)（即时生效）。
+          使用：KUAL → K4Refresh（AB-A/AB-B 残影拍照、Quantize now、
+            Duokan Quant On/Off、ghost 档位；ghost 档位开书后生效）；
+          KOReader 主菜单 → K4Refresh (ghost clearing)（即时生效）：
+            Duokan quant: On/Off      16 级量化开关（建议 On）
+            Ghost: Every 4/6/8 Pages  slow 收尾档位
+            Full Refresh now (slow)   手动清残影
+          推荐配置（真机验收组合）：mode.conf = "ghost 4" + "quant on"。
           部署/更新后需重启 KOReader（插件只在启动时扫描 plugins/）。
           卸载：rm -rf /mnt/us/extensions/k4refresh /mnt/us/k4refresh
                 /mnt/us/koreader/plugins/k4refresh.koplugin

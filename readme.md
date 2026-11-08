@@ -4,7 +4,7 @@ Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KORea
 
 - 🆕 **v0.1.10（2026-11-07）**：**Duokan 对齐量化**——多看固件逆向（报告《Duokan-xKindle-K4固件逆向与借鉴优化报告-2026-11-07.md》）证实其在渲染层对每像素执行 `v&0xF0|v>>4`（16 级灰阶，幂等），把 partial 刷新的累积灰阶污染锁死在 16 级内。新增：CLI `fxquant` 子命令（量化可见 fb + 可选刷新）、KOReader 插件 "Duokan quant" 开关（接管 einkfb `refreshPartialImp/refreshFullImp`，blit 后 ioctl 前纯 LuaJIT FFI 就地量化，无需 .so）、KUAL 菜单 3 项（Quantize now / Duokan Quant On/Off）、mode.conf 第 2 行 `quant on|off`、FFI 对等导出 `k4refresh_quant_refresh`。
 - 🆕 **v0.1.9（2026-11-07）**：KUAL 菜单改为嵌套子菜单（主菜单只显示 "K4Refresh ▸"，7 项收进二级，与 KOReader 扩展同构）；修复旧式 config.xml 菜单在 KUAL 2.7 下不显示的问题（parse.awk 只认 `<menu type="json">`）。CLI 二进制与 v0.1.8 相同，无功能变化。
-- ⚠️ **状态：v0.1.10，Duokan 量化待真机 A/B 验收**（bench `--pattern gray --quant` 对比照片；v0.1.8/0.1.9 的 ghost 收尾链路已在真机验证，残影感知验收结论：ghost 6 下可接受）。部署前请阅读技术方案文档（本地工作文件，不入库）的测试表与风险清单，`info` 冒烟失败立即停用。
+- ✅ **状态：v0.1.10 已真机验收发版（2026-11-08）**——双机交叉 A/B（K4/K5 两面板交换机位）证实量化组阶梯残差 RMS 降 10~15%、整页刷新快约 20%；**推荐日常配置：`ghost 4` + `quant on`**（用户验收可接受）。已知定性：量化是灰阶漂移上界控制器（16 级锁死），不是鬼影消灭器——中段灰阶的大跳变残留仍在，由周期性 slow 收尾兜底。
 - 📦 下载：[Releases](https://github.com/dororo42/k4refresh/releases) 页 zip 包（含静态 CLI / Lua 桥 / KOReader 插件 / KUAL 扩展 / SHA256SUMS；v0.1.8 起不再分发 .so 与动态 CLI）；或 Actions → build → artifacts。
 - 🤖 CI：push 自动构建 ARM 产物；打 `v*` tag 自动发布 Release。
 
@@ -74,6 +74,8 @@ ssh -P 2222 root@192.168.2.x "chmod +x /mnt/us/k4refresh/* /mnt/us/extensions/k4
 
 行为：翻页保持原生 partial 不变；每 N 次翻页自动触发一次 slow 全刷（闪烁一次、残影清零）；章节/跳页等大步长跳转（|Δ页|>1）立即收尾。v0.1.8 方案 A 起 FFI 默认停用（K4 armel 无可加载 .so），插件直接走静态 CLI，收尾动作不中断。量化钩子与该 FFI 停用无关（量化用 KOReader 自身 LuaJIT + 已映射内存，不开 .so）。
 
+**推荐日常配置（v0.1.10 真机验收）**：`ghost 4` + `quant on`（K4/K5 双机通用；K5 插件需同步升级到 v0.1.10 才有量化钩子）。
+
 **收尾策略接管（v0.1.7+，v0.1.8 修正还原行为）**：ghost 模式激活时，插件自动把 KOReader 内置的"每 6 次 partial 升级全刷"（UIManager `full_refresh_count`）设为 0，避免与插件收尾叠加成双重黑闪；Ghost: Off 时还原**接管前的档位**（v0.1.7 曾硬编码 6，会覆盖用户自定义档；v0.1.8 起捕获原值，且 0 不落盘，重启后也不会把 0 当用户设置）。背景：实测连续 partial 全屏反转的残影单调累积（第 1→4 次反转 RMS 约 10%→15%），周期性 slow 收尾是必要设计。
 
 ### 4.2 KUAL 菜单
@@ -110,6 +112,8 @@ KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜
 #                                                       ↑ 组内每次刷新间隔 3 秒，肉眼逐次辨认标记
 /mnt/us/k4refresh/k4refresh-cli bench --fx partial --n 3 --delay-ms 7000 --pattern gray --shot-idx 1 --label N
 #                                                       ↑ 灰阶条带残影观察；--quant 附加 16 级量化；--shot-idx 为 0-based（第 N+1 帧显示「标记+请拍摄」横幅）
+/mnt/us/k4refresh/k4refresh-cli bench --fx partial --n 3 --delay-ms 2000 --pattern gray --quant --shot-idx 2 --label B --keep
+#                                                       ↑ v0.1.10+：--keep 结束后不恢复原画面，横幅帧（B3）留在屏上供拍照；重开 KOReader/flash 恢复
 #
 # bench 说明（v0.1.2+）：
 #   - 每次刷新的图案左上角带白底计数标记（A1/A2/A3…），方便真机肉眼计数
@@ -117,7 +121,8 @@ KUAL → K4Refresh（写 mode.conf，**下次开书后**生效；KOReader 内菜
 #   - --sync（v0.1.5+）：每次刷新后 fsync(fd)（= WAITFORVSYNC）计时；实测 ioctl 本身同步
 #     （~125ms），fsync 仅 0.4-0.5ms，CSV 增列 sync_usec
 #   - --pattern gray / --quant / --shot-idx（v0.1.5/0.1.6+）：残影对比实验工具，见上例
-#   - 结束时自动恢复进入前的画面（不留测试图案）
+#   - --keep（v0.1.10+）：结束不恢复原画面（残影拍照模式；flash/重开 KOReader 恢复）
+#   - 结束时自动恢复进入前的画面（不留测试图案；--keep 除外）
 #   - 完成消息为「N 行写入 xxx（M 次 ioctl 失败）」，M>0 才需要关注 CSV error 列
 #
 # restore/fxupdate 说明（v0.1.7+）：ioctl 编号自动按 新(0x46ef/0x46e4)→旧(0x4644/0x4642)
