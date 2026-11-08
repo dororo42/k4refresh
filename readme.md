@@ -1,5 +1,7 @@
 # k4refresh — Kindle 4 E-Ink 刷新策略控制器
 
+English | [简体中文](readme.md)
+
 Rust 编写的 Kindle 4（legacy einkfb）刷屏优化层：**翻页保持 KOReader 原生 partial，KOReader 插件按 ghost 档位每 N 页自动 `fx_update_slow` 收尾清残影**，外加确定性手动全刷、区域裁剪与 ioctl 计时 benchmark。
 
 - 🆕 **v0.1.10（2026-11-07）**：**Duokan 对齐量化**——多看固件逆向（报告《Duokan-xKindle-K4固件逆向与借鉴优化报告-2026-11-07.md》）证实其在渲染层对每像素执行 `v&0xF0|v>>4`（16 级灰阶，幂等），把 partial 刷新的累积灰阶污染锁死在 16 级内。新增：CLI `fxquant` 子命令（量化可见 fb + 可选刷新）、KOReader 插件 "Duokan quant" 开关（接管 einkfb `refreshPartialImp/refreshFullImp`，blit 后 ioctl 前纯 LuaJIT FFI 就地量化，无需 .so）、KUAL 菜单 3 项（Quantize now / Duokan Quant On/Off）、mode.conf 第 2 行 `quant on|off`、FFI 对等导出 `k4refresh_quant_refresh`。
@@ -39,6 +41,8 @@ cargo test              # 策略单测（host）
 ```
 
 ## 3. 部署（照抄即可；前置：越狱 + KUAL；SSH 通道二选一）
+
+> **KUAL 推荐**：[dororo42/KUAL_Booklet](https://github.com/dororo42/KUAL_Booklet)（KUAL-neo——官方 v2.7 忠实重建 + UI 优化，Release `v2.7.37-neo.1`）。本项目的 K4Refresh 扩展在 KUAL-neo 与原版 KUAL 2.7 上均实测可用；两台验收机（K4/K5）当前即运行 KUAL-neo。
 
 SSH 通道（二选一，推荐 A）：
 - **A. KOReader 自带 SSH 服务器**（免装 usbnet，攻击面最小）：KOReader → 齿轮 → 网络 → 无线 → 开启 SSH 服务器，默认端口 `2222`，用户 `root`，密码在 KOReader 设置里可见/修改
