@@ -292,12 +292,13 @@ struct FbGuard<'a> {
     saved: Vec<u8>,
     len: usize,
     restored: bool,
+    keep: bool,
 }
 
 impl<'a> FbGuard<'a> {
-    fn new(fd: c_int, fb: *mut u8, v: &'a VarScreenInfo, len: usize) -> Self {
+    fn new(fd: c_int, fb: *mut u8, v: &'a VarScreenInfo, len: usize, keep: bool) -> Self {
         let saved = unsafe { std::slice::from_raw_parts(fb, len) }.to_vec();
-        FbGuard { fd, fb, v, saved, len, restored: false }
+        FbGuard { fd, fb, v, saved, len, restored: false, keep }
     }
     fn restore(&mut self) {
         if self.restored {
@@ -316,7 +317,11 @@ impl<'a> FbGuard<'a> {
 
 impl<'a> Drop for FbGuard<'a> {
     fn drop(&mut self) {
-        self.restore();
+        // --keep（残影拍照模式）：结束时不恢复原画面，测试帧（含拍摄横幅）
+        // 留在屏幕上供拍照；恢复由下一次 flash/restore/翻页自然完成。
+        if !self.keep {
+            self.restore();
+        }
     }
 }
 
@@ -335,9 +340,10 @@ pub fn run(
     quant: bool,
     sync: bool,
     shot_idx: usize,
+    keep: bool,
 ) -> io::Result<(usize, usize)> {
     let (fb, len) = map_fb(fd, f)?;
-    let guard = FbGuard::new(fd, fb, v, len);
+    let guard = FbGuard::new(fd, fb, v, len, keep);
     let mut out = io::BufWriter::new(std::fs::File::create(out_path)?);
     writeln!(out, "fx,seq,label,ioctl_usec,sync_usec,error")?;
     let mut rows = 0usize;
@@ -387,12 +393,13 @@ pub fn run_seq(
     quant: bool,
     sync: bool,
     shot_idx: usize,
+    keep: bool,
 ) -> io::Result<(usize, usize)> {
     if seq.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty seq"));
     }
     let (fb, len) = map_fb(fd, f)?;
-    let guard = FbGuard::new(fd, fb, v, len);
+    let guard = FbGuard::new(fd, fb, v, len, keep);
     let mut out = io::BufWriter::new(std::fs::File::create(out_path)?);
     writeln!(out, "fx,round,step,label,ioctl_usec,sync_usec,error")?;
     let mut rows = 0usize;

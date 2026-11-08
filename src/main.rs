@@ -31,6 +31,7 @@ fn usage() -> ! {
          \x20                 [--delay-ms 3000] [--out latency.csv] [--sync]\n\
          \x20                 [--seq fast,fast,fast,slow] [--pattern checker|gray] [--quant]\n\
          \x20                 [--shot-idx N]（0-based：第 N+1 次刷新显示「标记+请拍摄」横幅，供相机记录）\n\
+         \x20                 [--keep]（残影拍照模式：结束不恢复原画面，横幅帧留在屏上）\n\
          \n\
          fx 取值: partial=0 fast=2 slow=3（legacy einkfb 无 waveform 概念）\n\
          fxupdate --which: -1=无变换 21=反色（fx_t Shim 变换）",
@@ -302,6 +303,7 @@ fn main() -> ExitCode {
                 .flag("--shot-idx")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1);
+            let keep = a.has("--keep");
             let rc = match a.flag("--seq").map(|s| bench::parse_fx_list(&s)) {
                 Some(seq) if seq.is_empty() => {
                     k4refresh::eink::close_fd(fd);
@@ -310,15 +312,20 @@ fn main() -> ExitCode {
                 }
                 Some(seq) => bench::run_seq(
                     fd, &v, &f, &seq, n, &out, &label, delay_ms, pattern, quant, sync, shot_idx,
+                    keep,
                 ),
                 None => bench::run(
                     fd, &v, &f, &fx_list, n, &out, &label, delay_ms, pattern, quant, sync, shot_idx,
+                    keep,
                 ),
             };
             k4refresh::eink::close_fd(fd);
             match rc {
                 Ok((rows, errors)) => {
-                    println!("bench 完成: {rows} 行写入 {out}（{errors} 次 ioctl 失败）；屏幕已恢复");
+                    println!(
+                        "bench 完成: {rows} 行写入 {out}（{errors} 次 ioctl 失败）{}",
+                        if keep { "；--keep：测试帧留在屏上（flash 可恢复）" } else { "；屏幕已恢复" }
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
