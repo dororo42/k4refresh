@@ -62,6 +62,16 @@ case "$1" in
   quantoff)
     set_quant off && msg "K4R: Duokan quant OFF" || msg "K4R: quant write FAILED"
     ;;
+  abkeep)
+    # 残影 A/B 拍照模式：KOReader 已退出时使用，图案永久停留（--keep）
+    case "$2" in
+      B) Q="--quant"; L="B"; OUT=ab_quant_on.csv ;;
+      *) Q=""; L="A"; OUT=ab_quant_off.csv ;;
+    esac
+    "$BIN" bench --fx partial --n 3 --delay-ms 2000 --pattern gray $Q \
+      --shot-idx 2 --label $L --out /mnt/us/k4refresh/$OUT --keep \
+      && msg "K4R: ${L}3 图案已停留(拍照后重开KOReader恢复)" || msg "K4R: bench FAILED"
+    ;;
   quantnow)
     "$BIN" fxquant --refresh partial && msg "K4R: quantized (partial)" || msg "K4R: quant FAILED"
     ;;
